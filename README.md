@@ -26,6 +26,11 @@ WASM atrás da mesma interface.
   - Infere **coincidência** (snap em ponto), **horizontal (H)** e **vertical (V)** automaticamente.
 - **Círculo (C)** — clique no centro → clique no raio. Centro e ponto da circunferência são pontos reais do sketch, então participam do snap e do solver.
 - **Arco (A)** — clique centro → início → fim. Pressione **R** para inverter o sentido (↺/↻). Também é formado por pontos + centro, com raio derivado.
+- **Tangente (T)** — clique em duas entidades (linha, círculo ou arco) para criar tangência:
+  - linha–curva: distância do centro da curva à reta = raio;
+  - curva–curva: centros separados pela soma dos raios (externa) ou pela diferença (**Shift** = interna);
+  - linha–linha: paralelismo.
+  - Ao criar a tangência, o raio atual de cada curva é travado por uma cota **R**, para que o solver mova as entidades em vez de redimensioná-las.
 - **Dimensão (D)** — clique numa linha (comprimento), em dois pontos (distância) ou numa curva (raio **R**; **Shift+clique** gera diâmetro **⌀**).
   - A cota é **inteligente**: o valor é editável no canvas e o **solver move a geometria** para satisfazê-lo. No arco, a cota de raio força os dois extremos a permanecerem na mesma circunferência.
 - **Selecionar (V)** — clique para selecionar, arraste pontos para mover (restrições são respeitadas), Delete remove.
@@ -46,7 +51,7 @@ O termo `λI` regulariza sistemas subdeterminados: pontos sem restrição recebe
 `Δx ≈ 0`, então o sketch se move o mínimo necessário. Derivadas numéricas
 genéricas permitem adicionar novos tipos de restrição sem tocar no solver.
 
-Restrições atuais: `distance`, `horizontal`, `vertical`, `radius`, `diameter`.
+Restrições atuais: `distance`, `horizontal`, `vertical`, `radius`, `diameter`, `tangent`.
 Uma restrição pode gerar mais de uma equação: `radius`/`diameter` num arco
 produzem duas (uma por extremo).
 

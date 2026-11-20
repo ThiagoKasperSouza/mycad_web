@@ -130,7 +130,7 @@ export class SketchDocument {
     for (const [cid, c] of this.constraints) {
       if (c.type === 'distance') {
         if (c.a === id || c.b === id) this.constraints.delete(cid);
-      } else if (c.type !== 'radius' && c.type !== 'diameter') {
+      } else if (c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent') {
         const l = this.lines.get(c.line);
         if (!l || l.a === id || l.b === id) this.constraints.delete(cid);
       }
@@ -148,7 +148,7 @@ export class SketchDocument {
     this.lines.delete(id);
     const ref: EntityRef = { kind: 'line', id };
     for (const [cid, c] of this.constraints) {
-      if (c.type !== 'distance' && c.type !== 'radius' && c.type !== 'diameter' && c.line === id) {
+      if (c.type !== 'distance' && c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent' && c.line === id) {
         this.constraints.delete(cid);
       }
       if (this.touchesTangent(c, ref)) this.constraints.delete(cid);

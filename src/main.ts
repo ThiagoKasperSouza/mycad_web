@@ -19,6 +19,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   circle: 'Círculo',
   arc: 'Arco',
   dimension: 'Dimensão',
+  tangent: 'Tangente',
   pan: 'Pan',
 };
 
@@ -29,6 +30,7 @@ const TOOL_HINT: Record<Tool, string> = {
   circle: 'Clique no centro, depois no raio',
   arc: 'Clique centro → início → fim · R inverte o sentido',
   dimension: 'Clique em linha/círculo/arco ou em dois pontos · Shift+clique na curva = diâmetro',
+  tangent: 'Clique na 1ª entidade, depois na 2ª · Shift = tangência interna (curvas)',
   pan: 'Arraste para mover a vista',
 };
 
@@ -58,6 +60,7 @@ class SketcherApp {
   private circleCenter: CircleState | null = null;
   private arcState: ArcState | null = null;
   private arcCcw = true;
+  private tangentFirst: EntityRef | null = null;
   private dimFirstPoint: number | undefined;
   private dragging: { id: number } | null = null;
   private panning: { sx: number; sy: number; ox: number; oy: number } | null = null;
@@ -101,6 +104,7 @@ class SketcherApp {
     this.lineStart = null;
     this.circleCenter = null;
     this.arcState = null;
+    this.tangentFirst = null;
     this.dimFirstPoint = undefined;
     this.dragging = null;
     this.cancelEditor();
@@ -212,7 +216,8 @@ class SketcherApp {
       else if (c.type === 'horizontal') label = `horizontal (L${c.line})`;
       else if (c.type === 'vertical') label = `vertical (L${c.line})`;
       else if (c.type === 'radius') label = `raio = ${this.fmt(c.value)}`;
-      else label = `diâmetro = ${this.fmt(c.value)}`;
+      else if (c.type === 'diameter') label = `diâmetro = ${this.fmt(c.value)}`;
+      else label = `tangente ${this.entityLabel(c.a)} ↔ ${this.entityLabel(c.b)} (${c.mode === 'internal' ? 'interna' : 'externa'})`;
       return this.row('constraint', c.id, `C${c.id} &nbsp; ${label}`, '', this.selection.constraints.has(c.id));
     });
     constraintList.innerHTML = constraintRows.join('') || '<div class="empty">Nenhuma restrição</div>';
@@ -220,6 +225,16 @@ class SketcherApp {
   }
 
   private fmt(v: number): string { return String(Math.round(v * 100) / 100); }
+
+  private entityLabel(ref: EntityRef): string {
+    const prefix = ref.kind === 'line' ? 'L' : ref.kind === 'circle' ? 'C' : 'A';
+    return `${prefix}${ref.id}`;
+  }
+
+  private selectEntity(ref: EntityRef): void {
+    if (ref.kind === 'line') this.setSelection('line', ref.id);
+    else this.setSelection('curve', ref.id);
+  }
 
   private row(kind: string, id: number, label: string, tag: string, selected: boolean): string {
     return `<div class="row${selected ? ' sel' : ''}" data-kind="${kind}" data-id="${id}">
@@ -297,6 +312,7 @@ class SketcherApp {
     this.lineStart = null;
     this.circleCenter = null;
     this.arcState = null;
+    this.tangentFirst = null;
     this.dimFirstPoint = undefined;
     this.preview = null;
     this.hint = TOOL_HINT[tool];
@@ -447,6 +463,53 @@ class SketcherApp {
         this.solveAndRefresh();
       }
       this.draw();
+      return;
+    }
+
+    if (this.tool === 'tangent') {
+      const hit = hitTestEntity(this.doc, w.x, w.y, pick);
+      if (!hit) {
+        this.tangentFirst = null;
+        this.selection = this.emptySelection();
+        this.hint = TOOL_HINT.tangent;
+        this.draw();
+        return;
+      }
+      if (!this.tangentFirst) {
+        this.beginCommand();
+        this.tangentFirst = hit;
+        this.selectEntity(hit);
+        this.hint = 'Agora clique na segunda entidade · Shift = tangência interna';
+        this.draw();
+        return;
+      }
+      const first = this.tangentFirst;
+      if (hit.kind === first.kind && hit.id === first.id) return;
+
+      // Trava o raio das curvas envolvidas para que a tangência mova a geometria,
+      // não redimensione as curvas (o solver tem acesso aos pontos do raio).
+      const seen = new Set<number>();
+      for (const ref of [first, hit]) {
+        if (ref.kind === 'line' || seen.has(ref.id)) continue;
+        seen.add(ref.id);
+        const alreadyLocked = [...this.doc.constraints.values()].some(
+          (c) => (c.type === 'radius' || c.type === 'diameter') && c.entity === ref.id,
+        );
+        const r = this.doc.radiusOf(ref.id);
+        if (!alreadyLocked && r !== undefined && r > 1e-6) {
+          this.doc.addConstraint({ type: 'radius', entity: ref.id, value: r });
+        }
+      }
+
+      const c = this.doc.addConstraint({
+        type: 'tangent', a: first, b: hit,
+        mode: e.shiftKey ? 'internal' : 'external',
+      });
+      this.tangentFirst = null;
+      this.endCommand();
+      this.hint = TOOL_HINT.tangent;
+      this.solveAndRefresh();
+      this.setSelection('constraint', c.id);
       return;
     }
 
@@ -616,10 +679,11 @@ class SketcherApp {
 
   private cancel(): void {
     this.cancelEditor();
-    if (this.lineStart || this.circleCenter || this.arcState || this.dimFirstPoint !== undefined) {
+    if (this.lineStart || this.circleCenter || this.arcState || this.tangentFirst || this.dimFirstPoint !== undefined) {
       this.lineStart = null;
       this.circleCenter = null;
       this.arcState = null;
+      this.tangentFirst = null;
       this.dimFirstPoint = undefined;
       this.hint = TOOL_HINT[this.tool];
       this.preview = null;
@@ -649,6 +713,7 @@ class SketcherApp {
       this.lineStart = null;
       this.circleCenter = null;
       this.arcState = null;
+      this.tangentFirst = null;
       this.dimFirstPoint = undefined;
       this.fitView();
       this.solveAndRefresh();
@@ -700,6 +765,7 @@ class SketcherApp {
       else if (k === 'c') this.setTool('circle');
       else if (k === 'a') this.setTool('arc');
       else if (k === 'd') this.setTool('dimension');
+      else if (k === 't') this.setTool('tangent');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') {
         this.arcCcw = !this.arcCcw;

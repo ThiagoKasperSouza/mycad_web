@@ -210,7 +210,7 @@ function tangentLayout(doc: SketchDocument, c: Extract<Constraint, { type: 'tang
   const sa = worldToScreen(anchorA.x, anchorA.y, view);
   const sb = worldToScreen(anchorB.x, anchorB.y, view);
   const badge = { x: (sa.x + sb.x) / 2, y: (sa.y + sb.y) / 2 - 14 };
-  const text = c.mode === 'internal' ? 'tan int' : 'tan';
+  const text = c.mode === 'internal' ? 'tg int' : 'tg';
   const w = text.length * 7 + 14;
   const h = 18;
   return {
@@ -308,7 +308,7 @@ function drawConstraint(ctx: CanvasRenderingContext2D, c: Constraint, doc: Sketc
 }
 
 function drawInferenceBadge(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View): void {
-  if (c.type === 'distance' || c.type === 'radius' || c.type === 'diameter') return;
+  if (c.type === 'distance' || c.type === 'radius' || c.type === 'diameter' || c.type === 'tangent') return;
   const l = doc.lines.get(c.line);
   if (!l) return;
   const a = doc.point(l.a);
