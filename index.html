@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MyCAD — Sketcher</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="toolbar">
+        <div class="brand">MyCAD <span>sketcher</span></div>
+        <div class="tool-group" id="tool-group">
+          <button class="tool-btn active" data-tool="select" title="Selecionar (V)">↖ <span>Selecionar</span></button>
+          <button class="tool-btn" data-tool="point" title="Ponto (P)">● <span>Ponto</span></button>
+          <button class="tool-btn" data-tool="line" title="Linha (L)">╱ <span>Linha</span></button>
+          <button class="tool-btn" data-tool="circle" title="Círculo (C)">◯ <span>Círculo</span></button>
+          <button class="tool-btn" data-tool="arc" title="Arco (A)">◜ <span>Arco</span></button>
+          <button class="tool-btn" data-tool="dimension" title="Dimensão (D)">↔ <span>Dimensão</span></button>
+          <button class="tool-btn" data-tool="pan" title="Mover vista (Espaço / botão do meio)">✥ <span>Pan</span></button>
+        </div>
+        <div class="tool-group">
+          <button class="icon-btn" id="undo-btn" title="Desfazer (Ctrl+Z)">↶</button>
+          <button class="icon-btn" id="redo-btn" title="Refazer (Ctrl+Y)">↷</button>
+          <button class="icon-btn" id="fit-btn" title="Ajustar à vista (F)">⤢</button>
+          <button class="icon-btn danger" id="clear-btn" title="Limpar sketch">✕</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <div class="canvas-wrap" id="canvas-wrap">
+          <canvas id="sketch"></canvas>
+          <div class="inline-editor" id="inline-editor" hidden>
+            <input id="dim-input" type="text" inputmode="decimal" aria-label="Valor da dimensão" />
+          </div>
+        </div>
+        <aside class="inspector">
+          <section>
+            <h3>Entidades <span id="entity-count" class="count">0</span></h3>
+            <div id="entity-list" class="list"></div>
+          </section>
+          <section>
+            <h3>Restrições <span id="constraint-count" class="count">0</span></h3>
+            <div id="constraint-list" class="list"></div>
+          </section>
+          <section class="help">
+            <h3>Ajuda</h3>
+            <ul>
+              <li><b>V / P / L / C / A / D</b> — selecionar, ponto, linha, círculo, arco, dimensão</li>
+              <li><b>R</b> — inverte o sentido do arco (com a ferramenta Arco ativa)</li>
+              <li><b>Shift + clique</b> na curva com Dimensão — cota de diâmetro (⌀) em vez de raio (R)</li>
+              <li><b>Espaço</b> (segure) ou botão do meio — mover vista</li>
+              <li><b>Roda do mouse</b> — zoom</li>
+              <li><b>Esc</b> — cancelar operação atual</li>
+              <li><b>Delete</b> — remover seleção</li>
+              <li><b>Ctrl+Z / Ctrl+Y</b> — desfazer / refazer</li>
+              <li><b>F</b> — ajustar sketch à vista</li>
+              <li>Ao desenhar, o snap infere <b>coincidência</b>, <b>horizontal</b> e <b>vertical</b>.</li>
+            </ul>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="statusbar">
+        <span id="status-tool">Selecionar</span>
+        <span class="sep"></span>
+        <span id="status-coords">x: 0.00 &nbsp; y: 0.00</span>
+        <span class="sep"></span>
+        <span id="status-solver">sem restrições</span>
+        <span class="grow"></span>
+        <span id="status-hint" class="hint"></span>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "mycad",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Sketcher 2D parametrizado para um sistema CAD — ponto, linha e dimensionamento inteligente",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^6.0.5"
+  }
+}
