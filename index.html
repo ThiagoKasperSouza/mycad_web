@@ -35,6 +35,7 @@
       <main class="workspace">
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="sketch"></canvas>
+          <div id="warning-banner" class="warning-banner" hidden></div>
           <div class="inline-editor" id="inline-editor" hidden>
             <input id="dim-input" type="text" inputmode="decimal" aria-label="Valor da dimensão" />
           </div>
@@ -74,6 +75,8 @@
         <span id="status-coords">x: 0.00 &nbsp; y: 0.00</span>
         <span class="sep"></span>
         <span id="status-solver">sem restrições</span>
+        <span class="sep"></span>
+        <span id="status-dof">GL: —</span>
         <span class="grow"></span>
         <span id="status-hint" class="hint"></span>
       </footer>

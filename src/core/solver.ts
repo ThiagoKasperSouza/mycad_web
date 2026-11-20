@@ -180,6 +180,18 @@ function residuals(c: Constraint, doc: SketchDocument): number[] {
   }
 }
 
+/** Uma restrição só participa se todas as entidades que ela referencia existem. */
+function isActive(c: Constraint, doc: SketchDocument): boolean {
+  if (c.type === 'distance') return true;
+  if (c.type === 'horizontal' || c.type === 'vertical') return doc.lines.has(c.line);
+  if (c.type === 'tangent' || c.type === 'perpendicular' || c.type === 'angle') {
+    return doc.entityExists(c.a) && doc.entityExists(c.b);
+  }
+  if (c.type === 'symmetry') return doc.lines.has(c.axis.id) && doc.points.has(c.a) && doc.points.has(c.b);
+  if (c.type === 'angle3') return doc.points.has(c.a) && doc.points.has(c.vertex) && doc.points.has(c.b);
+  return doc.circles.has(c.entity) || doc.arcs.has(c.entity);
+}
+
 /**
  * Solver de restrições por Gauss-Newton amortecido (Levenberg-Marquardt).
  *
@@ -194,16 +206,7 @@ function residuals(c: Constraint, doc: SketchDocument): number[] {
  */
 export function solve(doc: SketchDocument, maxIterations = 100, tolerance = 1e-6): SolveResult {
   const free = [...doc.points.values()].filter((p) => !p.fixed);
-  const active = [...doc.constraints.values()].filter((c) => {
-    if (c.type === 'distance') return true;
-    if (c.type === 'horizontal' || c.type === 'vertical') return doc.lines.has(c.line);
-    if (c.type === 'tangent' || c.type === 'perpendicular' || c.type === 'angle') {
-      return doc.entityExists(c.a) && doc.entityExists(c.b);
-    }
-    if (c.type === 'symmetry') return doc.lines.has(c.axis.id) && doc.points.has(c.a) && doc.points.has(c.b);
-    if (c.type === 'angle3') return doc.points.has(c.a) && doc.points.has(c.vertex) && doc.points.has(c.b);
-    return doc.circles.has(c.entity) || doc.arcs.has(c.entity);
-  });
+  const active = [...doc.constraints.values()].filter((c) => isActive(c, doc));
 
   const n = free.length * 2; // x,y por ponto livre
   let groups = active.map((c) => residuals(c, doc));
@@ -321,4 +324,129 @@ function solveLinear(A: Float64Array, b: Float64Array, out: Float64Array, n: num
   }
 
   for (let i = 0; i < n; i++) out[i] = M[i * w + n];
+}
+
+// ----- análise de graus de liberdade / superdimensionamento -----
+
+export type SketchStatus = 'ok' | 'redundant' | 'conflict';
+
+export interface SketchAnalysis {
+  variables: number;   // 2 × número de pontos livres
+  equations: number;   // número de equações das restrições ativas
+  rank: number;        // posto da Jacobiana
+  dof: number;         // variáveis − posto
+  redundant: number[]; // ids de restrições linearmente dependentes
+  status: SketchStatus;
+  error: number;       // maior resíduo após a resolução
+  worstConstraint?: number;
+}
+
+/** Posto de uma matriz m×n por eliminação Gaussiana com pivotação. */
+function matrixRank(J: Float64Array, m: number, n: number): number {
+  if (m === 0 || n === 0) return 0;
+  const A = J.slice();
+  let maxAbs = 0;
+  for (const v of A) maxAbs = Math.max(maxAbs, Math.abs(v));
+  const eps = Math.max(1e-9, maxAbs * 1e-9);
+  let row = 0;
+  let rank = 0;
+  for (let col = 0; col < n && row < m; col++) {
+    let pivot = row;
+    for (let r = row + 1; r < m; r++) {
+      if (Math.abs(A[r * n + col]) > Math.abs(A[pivot * n + col])) pivot = r;
+    }
+    if (Math.abs(A[pivot * n + col]) < eps) continue;
+    if (pivot !== row) {
+      for (let c = col; c < n; c++) {
+        const tmp = A[row * n + c];
+        A[row * n + c] = A[pivot * n + c];
+        A[pivot * n + c] = tmp;
+      }
+    }
+    const pv = A[row * n + col];
+    for (let c = col; c < n; c++) A[row * n + c] /= pv;
+    for (let r = row + 1; r < m; r++) {
+      const f = A[r * n + col];
+      if (f === 0) continue;
+      for (let c = col; c < n; c++) A[r * n + c] -= f * A[row * n + c];
+    }
+    row++;
+    rank++;
+  }
+  return rank;
+}
+
+/**
+ * Analisa o sketch: graus de liberdade e restrições redundantes/conflitantes.
+ * GL = variáveis − posto(J). Se equações > posto, há redundância; se além disso
+ * o resíduo final não vai a zero, o sistema é conflitante (superdimensionado).
+ */
+export function analyze(doc: SketchDocument, solvedError?: number): SketchAnalysis {
+  const free = [...doc.points.values()].filter((p) => !p.fixed);
+  const n = free.length * 2;
+  const active = [...doc.constraints.values()].filter((c) => isActive(c, doc));
+  const groups = active.map((c) => ({ cid: c.id, values: residuals(c, doc) }));
+  const m = groups.reduce((sum, g) => sum + g.values.length, 0);
+
+  let error = 0;
+  let worstConstraint: number | undefined;
+  for (const g of groups) {
+    for (const v of g.values) {
+      if (Math.abs(v) > error) {
+        error = Math.abs(v);
+        worstConstraint = g.cid;
+      }
+    }
+  }
+  if (solvedError !== undefined) error = Math.max(error, solvedError);
+
+  if (n === 0 || m === 0) {
+    return { variables: n, equations: m, rank: 0, dof: n, redundant: [], status: 'ok', error, worstConstraint };
+  }
+
+  const buildJ = (ids: Set<number>): { J: Float64Array; rows: number } => {
+    const subset = active.filter((c) => ids.has(c.id));
+    const vals = subset.map((c) => residuals(c, doc));
+    const rows = vals.reduce((sum, v) => sum + v.length, 0);
+    const J = new Float64Array(rows * n);
+    const base: number[] = [];
+    for (const v of vals) for (const r of v) base.push(r);
+
+    const eps = 1e-6;
+    for (let j = 0; j < n; j++) {
+      const p = free[j >> 1];
+      const isX = (j & 1) === 0;
+      const original = isX ? p.x : p.y;
+      if (isX) p.x += eps;
+      else p.y += eps;
+      const plus: number[] = [];
+      for (const c of subset) for (const r of residuals(c, doc)) plus.push(r);
+      if (isX) p.x = original;
+      else p.y = original;
+      for (let i = 0; i < rows; i++) J[i * n + j] = (plus[i] - base[i]) / eps;
+    }
+    return { J, rows };
+  };
+
+  const allIds = active.map((c) => c.id);
+  const all = buildJ(new Set(allIds));
+  const rank = matrixRank(all.J, all.rows, n);
+  const redundant: number[] = [];
+
+  if (all.rows > rank) {
+    let remaining = [...allIds];
+    for (const cid of allIds) {
+      const trial = remaining.filter((id) => id !== cid);
+      const built = buildJ(new Set(trial));
+      if (matrixRank(built.J, built.rows, n) === rank) {
+        redundant.push(cid);
+        remaining = trial;
+      }
+    }
+  }
+
+  const status: SketchStatus = error > 1e-4 ? 'conflict' : redundant.length > 0 ? 'redundant' : 'ok';
+  return {
+    variables: n, equations: m, rank, dof: n - rank, redundant, status, error, worstConstraint,
+  };
 }

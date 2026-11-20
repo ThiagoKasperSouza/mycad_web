@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MyCAD — Sketcher</title>
-    <script type="module" crossorigin src="/assets/index-Ca2SSBfs.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CVKpkM6E.css">
+    <script type="module" crossorigin src="/assets/index-CC0F1-I8.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CvzhjoGy.css">
   </head>
   <body>
     <div id="app">
@@ -37,6 +37,7 @@
       <main class="workspace">
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="sketch"></canvas>
+          <div id="warning-banner" class="warning-banner" hidden></div>
           <div class="inline-editor" id="inline-editor" hidden>
             <input id="dim-input" type="text" inputmode="decimal" aria-label="Valor da dimensão" />
           </div>
@@ -76,6 +77,8 @@
         <span id="status-coords">x: 0.00 &nbsp; y: 0.00</span>
         <span class="sep"></span>
         <span id="status-solver">sem restrições</span>
+        <span class="sep"></span>
+        <span id="status-dof">GL: —</span>
         <span class="grow"></span>
         <span id="status-hint" class="hint"></span>
       </footer>

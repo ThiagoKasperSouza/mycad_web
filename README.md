@@ -41,6 +41,7 @@ WASM atrás da mesma interface.
 - **Pan** (botão do meio, Espaço ou ferramenta Pan) e **zoom** com a roda.
 - **Undo/Redo** (Ctrl+Z / Ctrl+Y), **Ajustar à vista** (F).
 - Painel de entidades/restrições com remoção individual.
+- **Graus de liberdade (GL)** na barra de status e **aviso de superdimensionamento**: restrições redundantes são destacadas em vermelho no canvas e no painel; conflitos (resíduo que não vai a zero) geram aviso explícito.
 
 ## Solver
 

@@ -7,6 +7,13 @@ export interface Selection {
   lines: Set<number>;
   curves: Set<number>;
   constraints: Set<number>;
+  redundant: Set<number>; // restrições redundantes/conflitantes
+}
+
+function constraintColor(c: Constraint, selection: Selection, base: string): string {
+  if (selection.redundant?.has(c.id)) return '#ff6b6b';
+  if (selection.constraints.has(c.id)) return '#ffcc66';
+  return base;
 }
 
 export interface Preview {
@@ -254,8 +261,8 @@ function drawGrid(ctx: CanvasRenderingContext2D, view: View, width: number, heig
   ctx.stroke();
 }
 
-function drawConstraint(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selected: boolean): void {
-  const color = selected ? '#ffcc66' : '#7fb2e8';
+function drawConstraint(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selection: Selection): void {
+  const color = constraintColor(c, selection, '#7fb2e8');
 
   if (c.type === 'radius' || c.type === 'diameter') {
     const L = radialLayout(doc, c, view);
@@ -329,11 +336,11 @@ function drawInferenceBadge(ctx: CanvasRenderingContext2D, c: Constraint, doc: S
   ctx.fillText(letter, mid.x, mid.y + 0.5);
 }
 
-function drawTangentGlyph(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selected: boolean): void {
+function drawTangentGlyph(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selection: Selection): void {
   if (c.type !== 'tangent') return;
   const L = tangentLayout(doc, c, view);
   if (!L) return;
-  const color = selected ? '#ffcc66' : '#6fd8c8';
+  const color = constraintColor(c, selection, '#6fd8c8');
 
   if (L.contact) {
     ctx.fillStyle = color;
@@ -512,8 +519,8 @@ function symmetryGlyph(doc: SketchDocument, c: Extract<Constraint, { type: 'symm
   return { a, b, anchor, rect: { x: anchor.x - 18, y: anchor.y - 10, w: 36, h: 20 } };
 }
 
-function drawExtraGlyphs(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selected: boolean): void {
-  const color = selected ? '#ffcc66' : '#c39bff';
+function drawExtraGlyphs(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selection: Selection): void {
+  const color = constraintColor(c, selection, '#c39bff');
 
   if (c.type === 'perpendicular') {
     const g = perpGlyph(doc, c, view);
@@ -694,10 +701,10 @@ export function render(
 
   // restrições
   for (const c of doc.constraints.values()) {
-    drawConstraint(ctx, c, doc, view, selection.constraints.has(c.id));
+    drawConstraint(ctx, c, doc, view, selection);
     drawInferenceBadge(ctx, c, doc, view);
-    drawTangentGlyph(ctx, c, doc, view, selection.constraints.has(c.id));
-    drawExtraGlyphs(ctx, c, doc, view, selection.constraints.has(c.id));
+    drawTangentGlyph(ctx, c, doc, view, selection);
+    drawExtraGlyphs(ctx, c, doc, view, selection);
   }
 
   // pontos

@@ -1,6 +1,6 @@
 import './style.css';
 import { SketchDocument } from './core/sketch';
-import { internalAngle, solve } from './core/solver';
+import { analyze, internalAngle, solve, type SketchAnalysis } from './core/solver';
 import type { EntityRef, Snapshot, Tool } from './core/types';
 import {
   angle3LabelPos, angleLabelPos, hitTestConstraint, hitTestCurve, hitTestEntity, hitTestLine, hitTestPoint, render,
@@ -85,16 +85,22 @@ class SketcherApp {
   private commandOpen = false;
   private hint = TOOL_HINT.select;
   private solverInfo = { error: 0, converged: true, iterations: 0 };
+  private analysis: SketchAnalysis = {
+    variables: 0, equations: 0, rank: 0, dof: 0, redundant: [], status: 'ok', error: 0,
+  };
 
   constructor() {
     this.bindEvents();
     this.resize();
     this.fitView();
-    this.refresh();
+    this.solveAndRefresh();
   }
 
   private emptySelection(): Selection {
-    return { points: new Set(), lines: new Set(), curves: new Set(), constraints: new Set() };
+    return {
+      points: new Set(), lines: new Set(), curves: new Set(),
+      constraints: new Set(), redundant: new Set(),
+    };
   }
 
   // ----- comandos / undo -----
@@ -176,12 +182,14 @@ class SketcherApp {
   }
 
   private refresh(): void {
+    this.selection.redundant = new Set(this.analysis.redundant);
     this.draw();
     this.updateInspector();
   }
 
   private solveAndRefresh(): void {
     this.solverInfo = solve(this.doc);
+    this.analysis = analyze(this.doc, this.solverInfo.error);
     this.refresh();
   }
 
@@ -201,6 +209,28 @@ class SketcherApp {
     } else {
       solver.textContent = `resolver: erro ${this.solverInfo.error.toExponential(1)} · ${constraints} restrição(ões)`;
       solver.className = 'bad';
+    }
+
+    const a = this.analysis;
+    const dof = document.getElementById('status-dof')!;
+    dof.textContent = `GL: ${a.dof}`;
+    dof.className = a.status === 'conflict' ? 'bad' : a.status === 'redundant' ? 'warn' : '';
+    dof.title = `${a.variables} variáveis · ${a.equations} equações · posto ${a.rank}`;
+
+    const banner = document.getElementById('warning-banner')!;
+    if (a.status === 'conflict') {
+      banner.hidden = false;
+      banner.className = 'warning-banner';
+      const worst = a.worstConstraint !== undefined ? `C${a.worstConstraint} não pode ser satisfeita` : 'restrições conflitantes';
+      const others = a.redundant.filter((id) => id !== a.worstConstraint);
+      const extra = others.length ? ` · redundantes: ${this.ids(others)}` : '';
+      banner.textContent = `⚠ Sketch superdimensionado: ${worst} (resíduo ${a.error.toExponential(1)})${extra}.`;
+    } else if (a.status === 'redundant') {
+      banner.hidden = false;
+      banner.className = 'warning-banner info';
+      banner.textContent = `⚠ Restrições redundantes: ${this.ids(a.redundant)} — remova uma para evitar superdimensionamento.`;
+    } else {
+      banner.hidden = true;
     }
 
     let hint = this.hint;
@@ -240,13 +270,18 @@ class SketcherApp {
       else if (c.type === 'angle') label = `ângulo = ${this.fmt(c.value)}° (${this.entityLabel(c.a)}, ${this.entityLabel(c.b)})`;
       else if (c.type === 'angle3') label = `ângulo interno = ${this.fmt(c.value)}° (P${c.a}, P${c.vertex}, P${c.b})`;
       else label = `simetria P${c.a} ↔ P${c.b} sobre ${this.entityLabel(c.axis)}`;
-      return this.row('constraint', c.id, `C${c.id} &nbsp; ${label}`, '', this.selection.constraints.has(c.id));
+      const redundant = this.selection.redundant.has(c.id);
+      return this.row('constraint', c.id, `C${c.id} &nbsp; ${label}`,
+        redundant ? '<span class="tag warn">redundante</span>' : '',
+        this.selection.constraints.has(c.id), redundant);
     });
     constraintList.innerHTML = constraintRows.join('') || '<div class="empty">Nenhuma restrição</div>';
     document.getElementById('constraint-count')!.textContent = String(constraintRows.length);
   }
 
   private fmt(v: number): string { return String(Math.round(v * 100) / 100); }
+
+  private ids(ids: number[]): string { return ids.map((id) => `C${id}`).join(', '); }
 
   private entityLabel(ref: EntityRef): string {
     const prefix = ref.kind === 'line' ? 'L' : ref.kind === 'circle' ? 'C' : 'A';
@@ -272,8 +307,8 @@ class SketcherApp {
     else this.setSelection('curve', ref.id);
   }
 
-  private row(kind: string, id: number, label: string, tag: string, selected: boolean): string {
-    return `<div class="row${selected ? ' sel' : ''}" data-kind="${kind}" data-id="${id}">
+  private row(kind: string, id: number, label: string, tag: string, selected: boolean, redundant = false): string {
+    return `<div class="row${selected ? ' sel' : ''}${redundant ? ' redundant' : ''}" data-kind="${kind}" data-id="${id}">
       <span class="label">${label}</span>${tag}<button class="del" data-del="${id}" data-kind="${kind}" title="Remover">×</button>
     </div>`;
   }
