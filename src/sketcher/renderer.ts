@@ -308,7 +308,8 @@ function drawConstraint(ctx: CanvasRenderingContext2D, c: Constraint, doc: Sketc
 }
 
 function drawInferenceBadge(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View): void {
-  if (c.type === 'distance' || c.type === 'radius' || c.type === 'diameter' || c.type === 'tangent') return;
+  if (c.type === 'distance' || c.type === 'radius' || c.type === 'diameter' || c.type === 'tangent'
+      || c.type === 'perpendicular' || c.type === 'angle' || c.type === 'angle3' || c.type === 'symmetry') return;
   const l = doc.lines.get(c.line);
   if (!l) return;
   const a = doc.point(l.a);
@@ -361,6 +362,209 @@ function drawTangentGlyph(ctx: CanvasRenderingContext2D, c: Constraint, doc: Ske
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(L.text, L.badge.x, L.badge.y + 0.5);
+}
+
+/** Interseção de duas retas infinitas; para paralelas, devolve o ponto médio. */
+export function lineIntersection(doc: SketchDocument, idA: number, idB: number): Vec2 | undefined {
+  const la = doc.lines.get(idA);
+  const lb = doc.lines.get(idB);
+  if (!la || !lb) return undefined;
+  const a = doc.point(la.a);
+  const b = doc.point(la.b);
+  const c = doc.point(lb.a);
+  const d = doc.point(lb.b);
+  const rx = b.x - a.x;
+  const ry = b.y - a.y;
+  const sx = d.x - c.x;
+  const sy = d.y - c.y;
+  const den = rx * sy - ry * sx;
+  if (Math.abs(den) < 1e-9) return { x: (a.x + b.x + c.x + d.x) / 4, y: (a.y + b.y + c.y + d.y) / 4 };
+  const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den;
+  return { x: a.x + t * rx, y: a.y + t * ry };
+}
+
+interface SimpleGlyph { rect: Rect; anchor: Vec2; }
+
+function perpGlyph(doc: SketchDocument, c: Extract<Constraint, { type: 'perpendicular' }>, view: View): SimpleGlyph | undefined {
+  const lineA = c.a.kind === 'line' ? c.a.id : undefined;
+  const lineB = c.b.kind === 'line' ? c.b.id : undefined;
+  let p: Vec2 | undefined;
+  if (lineA !== undefined && lineB !== undefined) {
+    const w = lineIntersection(doc, lineA, lineB);
+    if (w) p = worldToScreen(w.x, w.y, view);
+  } else if (lineA !== undefined || lineB !== undefined) {
+    const lineRef = lineA !== undefined ? c.a : c.b;
+    const center = doc.entityCenter(lineA !== undefined ? c.b : c.a);
+    if (center) {
+      const proj = projectOnLine(doc, lineRef.id, { x: center.x, y: center.y });
+      p = worldToScreen(proj.x, proj.y, view);
+    }
+  }
+  if (!p) return undefined;
+  const anchor = { x: p.x, y: p.y - 15 };
+  return { anchor, rect: { x: anchor.x - 11, y: anchor.y - 10, w: 22, h: 20 } };
+}
+
+interface AngleGlyph extends SimpleGlyph {
+  center: Vec2;
+  start: number;
+  end: number;
+  radius: number;
+  ccw: boolean;
+  text: string;
+}
+
+/** Posição do rótulo de uma cota de ângulo (também usada pelo editor inline). */
+export function angleLabelPos(doc: SketchDocument, c: Extract<Constraint, { type: 'angle' }>, view: View): Vec2 | undefined {
+  if (c.a.kind !== 'line' || c.b.kind !== 'line') return undefined;
+  const la = doc.lines.get(c.a.id);
+  const lb = doc.lines.get(c.b.id);
+  if (!la || !lb) return undefined;
+  const w = lineIntersection(doc, la.id, lb.id);
+  if (!w) return undefined;
+  const p1 = doc.point(la.a);
+  const q1 = doc.point(la.b);
+  const p2 = doc.point(lb.a);
+  const q2 = doc.point(lb.b);
+  const t1 = Math.atan2(q1.y - p1.y, q1.x - p1.x);
+  const t2 = Math.atan2(q2.y - p2.y, q2.x - p2.x);
+  let delta = t2 - t1;
+  while (delta > Math.PI) delta -= TAU;
+  while (delta < -Math.PI) delta += TAU;
+  const mid = t1 + delta / 2;
+  const center = worldToScreen(w.x, w.y, view);
+  const r = 32;
+  return { x: center.x + Math.cos(-mid) * (r + 18), y: center.y + Math.sin(-mid) * (r + 18) };
+}
+
+function angleGlyph(doc: SketchDocument, c: Extract<Constraint, { type: 'angle' }>, view: View): AngleGlyph | undefined {
+  if (c.a.kind !== 'line' || c.b.kind !== 'line') return undefined;
+  const la = doc.lines.get(c.a.id);
+  const lb = doc.lines.get(c.b.id);
+  if (!la || !lb) return undefined;
+  const w = lineIntersection(doc, la.id, lb.id);
+  if (!w) return undefined;
+  const p1 = doc.point(la.a);
+  const q1 = doc.point(la.b);
+  const p2 = doc.point(lb.a);
+  const q2 = doc.point(lb.b);
+  const t1 = Math.atan2(q1.y - p1.y, q1.x - p1.x);
+  const t2 = Math.atan2(q2.y - p2.y, q2.x - p2.x);
+  let delta = t2 - t1;
+  while (delta > Math.PI) delta -= TAU;
+  while (delta < -Math.PI) delta += TAU;
+  const center = worldToScreen(w.x, w.y, view);
+  const anchor = angleLabelPos(doc, c, view);
+  if (!anchor) return undefined;
+  const text = `${formatNumber(c.value)}°`;
+  const width = Math.max(34, text.length * 8 + 14);
+  return {
+    rect: { x: anchor.x - width / 2, y: anchor.y - 10, w: width, h: 20 },
+    anchor, center, start: -t1, end: -t2, radius: 32, ccw: delta > 0, text,
+  };
+}
+
+/** Posição do rótulo de um ângulo interno (3 pontos). */
+export function angle3LabelPos(doc: SketchDocument, c: Extract<Constraint, { type: 'angle3' }>, view: View): Vec2 | undefined {
+  const V = doc.points.get(c.vertex);
+  const A = doc.points.get(c.a);
+  const B = doc.points.get(c.b);
+  if (!V || !A || !B) return undefined;
+  const sv = worldToScreen(V.x, V.y, view);
+  const ta = Math.atan2(A.y - V.y, A.x - V.x);
+  const tb = Math.atan2(B.y - V.y, B.x - V.x);
+  let delta = tb - ta;
+  while (delta > Math.PI) delta -= TAU;
+  while (delta < -Math.PI) delta += TAU;
+  const mid = ta + delta / 2;
+  const r = 32;
+  return { x: sv.x + Math.cos(-mid) * (r + 18), y: sv.y + Math.sin(-mid) * (r + 18) };
+}
+
+function angle3Glyph(doc: SketchDocument, c: Extract<Constraint, { type: 'angle3' }>, view: View): AngleGlyph | undefined {
+  const V = doc.points.get(c.vertex);
+  const A = doc.points.get(c.a);
+  const B = doc.points.get(c.b);
+  if (!V || !A || !B) return undefined;
+  const sv = worldToScreen(V.x, V.y, view);
+  const ta = Math.atan2(A.y - V.y, A.x - V.x);
+  const tb = Math.atan2(B.y - V.y, B.x - V.x);
+  let delta = tb - ta;
+  while (delta > Math.PI) delta -= TAU;
+  while (delta < -Math.PI) delta += TAU;
+  const anchor = angle3LabelPos(doc, c, view);
+  if (!anchor) return undefined;
+  const text = `${formatNumber(c.value)}°`;
+  const width = Math.max(34, text.length * 8 + 14);
+  return {
+    rect: { x: anchor.x - width / 2, y: anchor.y - 10, w: width, h: 20 },
+    anchor, center: sv, start: -ta, end: -tb, radius: 32, ccw: delta > 0, text,
+  };
+}
+
+function symmetryGlyph(doc: SketchDocument, c: Extract<Constraint, { type: 'symmetry' }>, view: View): SimpleGlyph & { a: Vec2; b: Vec2 } | undefined {
+  const pa = doc.points.get(c.a);
+  const pb = doc.points.get(c.b);
+  if (!pa || !pb) return undefined;
+  const a = worldToScreen(pa.x, pa.y, view);
+  const b = worldToScreen(pb.x, pb.y, view);
+  const anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 16 };
+  return { a, b, anchor, rect: { x: anchor.x - 18, y: anchor.y - 10, w: 36, h: 20 } };
+}
+
+function drawExtraGlyphs(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View, selected: boolean): void {
+  const color = selected ? '#ffcc66' : '#c39bff';
+
+  if (c.type === 'perpendicular') {
+    const g = perpGlyph(doc, c, view);
+    if (!g) return;
+    ctx.fillStyle = '#1e1730';
+    roundRect(ctx, g.rect.x, g.rect.y, g.rect.w, g.rect.h, 4);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '600 14px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⊥', g.anchor.x, g.anchor.y + 0.5);
+    return;
+  }
+
+  if (c.type === 'angle' || c.type === 'angle3') {
+    const g = c.type === 'angle3' ? angle3Glyph(doc, c, view) : angleGlyph(doc, c, view);
+    if (!g) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(g.center.x, g.center.y, g.radius, g.start, g.end, g.ccw);
+    ctx.stroke();
+    drawText(ctx, g.text, g.anchor, g.rect, color);
+    return;
+  }
+
+  if (c.type === 'symmetry') {
+    const g = symmetryGlyph(doc, c, view);
+    if (!g) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(g.a.x, g.a.y);
+    ctx.lineTo(g.b.x, g.b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#1e1730';
+    roundRect(ctx, g.rect.x, g.rect.y, g.rect.w, g.rect.h, 4);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '600 11px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('sim', g.anchor.x, g.anchor.y + 0.5);
+  }
 }
 
 function drawCurves(ctx: CanvasRenderingContext2D, doc: SketchDocument, view: View, selection: Selection): void {
@@ -493,6 +697,7 @@ export function render(
     drawConstraint(ctx, c, doc, view, selection.constraints.has(c.id));
     drawInferenceBadge(ctx, c, doc, view);
     drawTangentGlyph(ctx, c, doc, view, selection.constraints.has(c.id));
+    drawExtraGlyphs(ctx, c, doc, view, selection.constraints.has(c.id));
   }
 
   // pontos
@@ -644,6 +849,14 @@ export function hitTestConstraint(doc: SketchDocument, view: View, sx: number, s
       rect = radialLayout(doc, c, view)?.rect;
     } else if (c.type === 'tangent') {
       rect = tangentLayout(doc, c, view)?.rect;
+    } else if (c.type === 'perpendicular') {
+      rect = perpGlyph(doc, c, view)?.rect;
+    } else if (c.type === 'angle') {
+      rect = angleGlyph(doc, c, view)?.rect;
+    } else if (c.type === 'angle3') {
+      rect = angle3Glyph(doc, c, view)?.rect;
+    } else if (c.type === 'symmetry') {
+      rect = symmetryGlyph(doc, c, view)?.rect;
     }
     if (!rect) continue;
     if (sx >= rect.x - 3 && sx <= rect.x + rect.w + 3 && sy >= rect.y - 3 && sy <= rect.y + rect.h + 3) return c.id;

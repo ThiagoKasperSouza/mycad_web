@@ -26,6 +26,10 @@ WASM atrás da mesma interface.
   - Infere **coincidência** (snap em ponto), **horizontal (H)** e **vertical (V)** automaticamente.
 - **Círculo (C)** — clique no centro → clique no raio. Centro e ponto da circunferência são pontos reais do sketch, então participam do snap e do solver.
 - **Arco (A)** — clique centro → início → fim. Pressione **R** para inverter o sentido (↺/↻). Também é formado por pontos + centro, com raio derivado.
+- **Perpendicular (E)** — duas retas (ou reta + curva: a reta passa pelo centro).
+- **Ângulo entre retas (G)** — duas retas; mede o ângulo dirigido entre elas, que pode ser o externo dependendo da ordem dos pontos.
+- **Ângulo interno (I)** — clique no **vértice** e depois num ponto de cada lateral. Mede sempre o ângulo interno (0–180°), ideal para cantos de polígonos e trapézios. O valor em graus é editável no canvas e o solver gira as laterais. Por medir o menor ângulo entre os raios, cobre ângulos internos de polígonos convexos (0–180°).
+- **Simetria (S)** — clique no 1º ponto, na reta-eixo e no 2º ponto; o solver espelha o par em relação ao eixo.
 - **Tangente (T)** — clique em duas entidades (linha, círculo ou arco) para criar tangência:
   - linha–curva: distância do centro da curva à reta = raio;
   - curva–curva: centros separados pela soma dos raios (externa) ou pela diferença (**Shift** = interna);
@@ -51,7 +55,8 @@ O termo `λI` regulariza sistemas subdeterminados: pontos sem restrição recebe
 `Δx ≈ 0`, então o sketch se move o mínimo necessário. Derivadas numéricas
 genéricas permitem adicionar novos tipos de restrição sem tocar no solver.
 
-Restrições atuais: `distance`, `horizontal`, `vertical`, `radius`, `diameter`, `tangent`.
+Restrições atuais: `distance`, `horizontal`, `vertical`, `radius`, `diameter`, `tangent`,
+`perpendicular`, `angle`, `angle3`, `symmetry`.
 Uma restrição pode gerar mais de uma equação: `radius`/`diameter` num arco
 produzem duas (uma por extremo).
 

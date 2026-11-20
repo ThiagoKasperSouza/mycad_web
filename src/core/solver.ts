@@ -1,5 +1,5 @@
 import type { SketchDocument } from './sketch';
-import type { Constraint } from './types';
+import type { Constraint, EntityRef } from './types';
 
 export interface SolveResult {
   iterations: number;
@@ -11,11 +11,40 @@ function dist(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(bx - ax, by - ay);
 }
 
+function lineDirection(doc: SketchDocument, ref: EntityRef) {
+  if (ref.kind !== 'line') return undefined;
+  const l = doc.lines.get(ref.id);
+  if (!l) return undefined;
+  const a = doc.point(l.a);
+  const b = doc.point(l.b);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return undefined;
+  return { a, dx, dy, len, ux: dx / len, uy: dy / len };
+}
+
 /**
  * Resíduos de uma restrição: 0 significa satisfeita.
  * Uma restrição pode gerar mais de uma equação — uma cota de raio num arco,
  * por exemplo, força os dois extremos a ficarem sobre a mesma circunferência.
  */
+/** Ângulo interno (0–180°) entre os raios V→A e V→B, em radianos. */
+export function internalAngle(doc: SketchDocument, a: number, vertex: number, b: number): number {
+  const V = doc.point(vertex);
+  const A = doc.point(a);
+  const B = doc.point(b);
+  const ux = A.x - V.x;
+  const uy = A.y - V.y;
+  const vx = B.x - V.x;
+  const vy = B.y - V.y;
+  const lu = Math.hypot(ux, uy);
+  const lv = Math.hypot(vx, vy);
+  if (lu < 1e-9 || lv < 1e-9) return 0;
+  const cos = Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)));
+  return Math.acos(cos);
+}
+
 function residuals(c: Constraint, doc: SketchDocument): number[] {
   switch (c.type) {
     case 'distance': {
@@ -82,6 +111,51 @@ function residuals(c: Constraint, doc: SketchDocument): number[] {
       }
       return [];
     }
+    case 'perpendicular': {
+      const u = lineDirection(doc, c.a);
+      const v = lineDirection(doc, c.b);
+      if (u && v) return [u.ux * v.ux + u.uy * v.uy];
+      // Linha perpendicular a uma curva: a reta passa pelo centro da curva.
+      const lineRef = u ? c.a : v ? c.b : undefined;
+      const curveRef = u ? c.b : c.a;
+      const d = lineRef ? lineDirection(doc, lineRef) : undefined;
+      const center = doc.entityCenter(curveRef);
+      if (d && center) return [d.ux * (center.y - d.a.y) - d.uy * (center.x - d.a.x)];
+      return [];
+    }
+    case 'angle': {
+      const u = lineDirection(doc, c.a);
+      const v = lineDirection(doc, c.b);
+      if (!u || !v) return [];
+      const cross = u.ux * v.uy - u.uy * v.ux;
+      const dot = u.ux * v.ux + u.uy * v.uy;
+      let r = Math.atan2(cross, dot) - c.value * Math.PI / 180;
+      while (r > Math.PI) r -= Math.PI * 2;
+      while (r < -Math.PI) r += Math.PI * 2;
+      return [r];
+    }
+    case 'angle3': {
+      if (!doc.points.has(c.a) || !doc.points.has(c.vertex) || !doc.points.has(c.b)) return [];
+      return [internalAngle(doc, c.a, c.vertex, c.b) - c.value * Math.PI / 180];
+    }
+    case 'symmetry': {
+      const line = doc.lines.get(c.axis.id);
+      if (!line || !doc.points.has(c.a) || !doc.points.has(c.b)) return [];
+      const A = doc.point(c.a);
+      const B = doc.point(c.b);
+      const P = doc.point(line.a);
+      const Q = doc.point(line.b);
+      const dx = Q.x - P.x;
+      const dy = Q.y - P.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-9) return [];
+      const ux = dx / len;
+      const uy = dy / len;
+      const signedA = ux * (A.y - P.y) - uy * (A.x - P.x);
+      const signedB = ux * (B.y - P.y) - uy * (B.x - P.x);
+      const along = (B.x - A.x) * ux + (B.y - A.y) * uy;
+      return [signedA + signedB, along];
+    }
     case 'radius':
     case 'diameter': {
       const target = c.type === 'radius' ? c.value : c.value / 2;
@@ -123,7 +197,11 @@ export function solve(doc: SketchDocument, maxIterations = 100, tolerance = 1e-6
   const active = [...doc.constraints.values()].filter((c) => {
     if (c.type === 'distance') return true;
     if (c.type === 'horizontal' || c.type === 'vertical') return doc.lines.has(c.line);
-    if (c.type === 'tangent') return doc.entityExists(c.a) && doc.entityExists(c.b);
+    if (c.type === 'tangent' || c.type === 'perpendicular' || c.type === 'angle') {
+      return doc.entityExists(c.a) && doc.entityExists(c.b);
+    }
+    if (c.type === 'symmetry') return doc.lines.has(c.axis.id) && doc.points.has(c.a) && doc.points.has(c.b);
+    if (c.type === 'angle3') return doc.points.has(c.a) && doc.points.has(c.vertex) && doc.points.has(c.b);
     return doc.circles.has(c.entity) || doc.arcs.has(c.entity);
   });
 

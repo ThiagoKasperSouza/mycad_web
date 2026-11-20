@@ -1,9 +1,9 @@
 import './style.css';
 import { SketchDocument } from './core/sketch';
-import { solve } from './core/solver';
+import { internalAngle, solve } from './core/solver';
 import type { EntityRef, Snapshot, Tool } from './core/types';
 import {
-  hitTestConstraint, hitTestCurve, hitTestEntity, hitTestLine, hitTestPoint, render,
+  angle3LabelPos, angleLabelPos, hitTestConstraint, hitTestCurve, hitTestEntity, hitTestLine, hitTestPoint, render,
   type Preview, type Selection,
 } from './sketcher/renderer';
 import { screenToWorld, snap, worldToScreen, type Vec2, type View } from './sketcher/snapping';
@@ -20,6 +20,10 @@ const TOOL_LABEL: Record<Tool, string> = {
   arc: 'Arco',
   dimension: 'Dimensão',
   tangent: 'Tangente',
+  perpendicular: 'Perpendicular',
+  angle: 'Ângulo entre retas',
+  angleInternal: 'Ângulo interno',
+  symmetry: 'Simetria',
   pan: 'Pan',
 };
 
@@ -31,6 +35,10 @@ const TOOL_HINT: Record<Tool, string> = {
   arc: 'Clique centro → início → fim · R inverte o sentido',
   dimension: 'Clique em linha/círculo/arco ou em dois pontos · Shift+clique na curva = diâmetro',
   tangent: 'Clique na 1ª entidade, depois na 2ª · Shift = tangência interna (curvas)',
+  perpendicular: 'Clique em duas retas (ou reta e curva)',
+  angle: 'Clique em duas retas (ângulo dirigido entre elas)',
+  angleInternal: 'Clique no vértice e em um ponto de cada lateral',
+  symmetry: 'Clique no 1º ponto, na reta de simetria e no 2º ponto',
   pan: 'Arraste para mover a vista',
 };
 
@@ -61,6 +69,11 @@ class SketcherApp {
   private arcState: ArcState | null = null;
   private arcCcw = true;
   private tangentFirst: EntityRef | null = null;
+  private perpFirst: EntityRef | null = null;
+  private angleFirst: EntityRef | null = null;
+  private anglePoints: { vertex: number; a?: number } | null = null;
+  private symPointA: number | undefined;
+  private symAxis: EntityRef | null = null;
   private dimFirstPoint: number | undefined;
   private dragging: { id: number } | null = null;
   private panning: { sx: number; sy: number; ox: number; oy: number } | null = null;
@@ -105,6 +118,11 @@ class SketcherApp {
     this.circleCenter = null;
     this.arcState = null;
     this.tangentFirst = null;
+    this.perpFirst = null;
+    this.angleFirst = null;
+    this.anglePoints = null;
+    this.symPointA = undefined;
+    this.symAxis = null;
     this.dimFirstPoint = undefined;
     this.dragging = null;
     this.cancelEditor();
@@ -217,7 +235,11 @@ class SketcherApp {
       else if (c.type === 'vertical') label = `vertical (L${c.line})`;
       else if (c.type === 'radius') label = `raio = ${this.fmt(c.value)}`;
       else if (c.type === 'diameter') label = `diâmetro = ${this.fmt(c.value)}`;
-      else label = `tangente ${this.entityLabel(c.a)} ↔ ${this.entityLabel(c.b)} (${c.mode === 'internal' ? 'interna' : 'externa'})`;
+      else if (c.type === 'tangent') label = `tangente ${this.entityLabel(c.a)} ↔ ${this.entityLabel(c.b)} (${c.mode === 'internal' ? 'interna' : 'externa'})`;
+      else if (c.type === 'perpendicular') label = `perpendicular ${this.entityLabel(c.a)} ⊥ ${this.entityLabel(c.b)}`;
+      else if (c.type === 'angle') label = `ângulo = ${this.fmt(c.value)}° (${this.entityLabel(c.a)}, ${this.entityLabel(c.b)})`;
+      else if (c.type === 'angle3') label = `ângulo interno = ${this.fmt(c.value)}° (P${c.a}, P${c.vertex}, P${c.b})`;
+      else label = `simetria P${c.a} ↔ P${c.b} sobre ${this.entityLabel(c.axis)}`;
       return this.row('constraint', c.id, `C${c.id} &nbsp; ${label}`, '', this.selection.constraints.has(c.id));
     });
     constraintList.innerHTML = constraintRows.join('') || '<div class="empty">Nenhuma restrição</div>';
@@ -229,6 +251,20 @@ class SketcherApp {
   private entityLabel(ref: EntityRef): string {
     const prefix = ref.kind === 'line' ? 'L' : ref.kind === 'circle' ? 'C' : 'A';
     return `${prefix}${ref.id}`;
+  }
+
+  /** Ângulo dirigido (graus) entre duas retas, normalizado para [-180, 180]. */
+  private signedAngleDeg(a: EntityRef, b: EntityRef): number {
+    const la = this.doc.lines.get(a.id);
+    const lb = this.doc.lines.get(b.id);
+    if (!la || !lb) return 0;
+    const p = this.doc.point(la.a);
+    const q = this.doc.point(la.b);
+    const r = this.doc.point(lb.a);
+    const s = this.doc.point(lb.b);
+    const cross = (q.x - p.x) * (s.y - r.y) - (q.y - p.y) * (s.x - r.x);
+    const dot = (q.x - p.x) * (s.x - r.x) + (q.y - p.y) * (s.y - r.y);
+    return Math.atan2(cross, dot) * 180 / Math.PI;
   }
 
   private selectEntity(ref: EntityRef): void {
@@ -268,6 +304,16 @@ class SketcherApp {
       const sr = worldToScreen(r.x, r.y, this.view);
       mx = (so.x + sr.x) / 2;
       my = (so.y + sr.y) / 2 - 20;
+    } else if (c.type === 'angle') {
+      const pos = angleLabelPos(this.doc, c, this.view);
+      if (!pos) return;
+      mx = pos.x;
+      my = pos.y;
+    } else if (c.type === 'angle3') {
+      const pos = angle3LabelPos(this.doc, c, this.view);
+      if (!pos) return;
+      mx = pos.x;
+      my = pos.y;
     } else {
       return;
     }
@@ -293,8 +339,12 @@ class SketcherApp {
     const raw = Number.parseFloat(this.dimInput.value.replace(',', '.'));
     this.cancelEditor();
 
-    if (c && (c.type === 'distance' || c.type === 'radius' || c.type === 'diameter')
-        && Number.isFinite(raw) && raw > 0) {
+    const valid = !!c && Number.isFinite(raw) && (
+      c.type === 'angle3' ? raw >= 0 && raw <= 180
+        : c.type === 'angle' ? Math.abs(raw) <= 360 : raw > 0
+    );
+    if (c && valid && (c.type === 'distance' || c.type === 'radius'
+        || c.type === 'diameter' || c.type === 'angle' || c.type === 'angle3')) {
       if (needsUndo) this.beginCommand();
       c.value = raw;
       this.solveAndRefresh();
@@ -313,6 +363,11 @@ class SketcherApp {
     this.circleCenter = null;
     this.arcState = null;
     this.tangentFirst = null;
+    this.perpFirst = null;
+    this.angleFirst = null;
+    this.anglePoints = null;
+    this.symPointA = undefined;
+    this.symAxis = null;
     this.dimFirstPoint = undefined;
     this.preview = null;
     this.hint = TOOL_HINT[tool];
@@ -463,6 +518,145 @@ class SketcherApp {
         this.solveAndRefresh();
       }
       this.draw();
+      return;
+    }
+
+    if (this.tool === 'perpendicular') {
+      const hit = hitTestEntity(this.doc, w.x, w.y, pick);
+      if (!hit) {
+        this.perpFirst = null;
+        this.selection = this.emptySelection();
+        this.hint = TOOL_HINT.perpendicular;
+        this.draw();
+        return;
+      }
+      if (!this.perpFirst) {
+        this.beginCommand();
+        this.perpFirst = hit;
+        this.selectEntity(hit);
+        this.hint = 'Agora clique na segunda entidade';
+        this.draw();
+        return;
+      }
+      if (hit.kind === this.perpFirst.kind && hit.id === this.perpFirst.id) return;
+      const c = this.doc.addConstraint({ type: 'perpendicular', a: this.perpFirst, b: hit });
+      this.perpFirst = null;
+      this.endCommand();
+      this.hint = TOOL_HINT.perpendicular;
+      this.solveAndRefresh();
+      this.setSelection('constraint', c.id);
+      return;
+    }
+
+    if (this.tool === 'angleInternal') {
+      if (!this.anglePoints) {
+        const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+        if (pid === undefined) {
+          this.hint = 'Clique no vértice do ângulo';
+          this.draw();
+          return;
+        }
+        this.beginCommand();
+        this.anglePoints = { vertex: pid };
+        this.setSelection('point', pid);
+        this.hint = 'Vértice escolhido · clique num ponto da primeira lateral';
+        this.draw();
+        return;
+      }
+      if (this.anglePoints.a === undefined) {
+        const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+        if (pid === undefined || pid === this.anglePoints.vertex) {
+          this.hint = 'Clique num ponto da primeira lateral (diferente do vértice)';
+          this.draw();
+          return;
+        }
+        this.anglePoints.a = pid;
+        this.setSelection('point', pid);
+        this.hint = 'Agora clique num ponto da segunda lateral';
+        this.draw();
+        return;
+      }
+      const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+      if (pid === undefined || pid === this.anglePoints.vertex || pid === this.anglePoints.a) return;
+      const { vertex, a } = this.anglePoints;
+      const value = internalAngle(this.doc, a, vertex, pid) * 180 / Math.PI;
+      const c = this.doc.addConstraint({ type: 'angle3', a, vertex, b: pid, value });
+      this.anglePoints = null;
+      this.endCommand();
+      this.hint = TOOL_HINT.angleInternal;
+      this.solveAndRefresh();
+      this.setSelection('constraint', c.id);
+      this.openDimensionEditor(c.id, false);
+      return;
+    }
+
+    if (this.tool === 'angle') {
+      const hit = hitTestEntity(this.doc, w.x, w.y, pick);
+      if (!hit || hit.kind !== 'line') {
+        this.angleFirst = null;
+        this.selection = this.emptySelection();
+        this.hint = TOOL_HINT.angle;
+        this.draw();
+        return;
+      }
+      if (!this.angleFirst) {
+        this.beginCommand();
+        this.angleFirst = hit;
+        this.selectEntity(hit);
+        this.hint = 'Agora clique na segunda reta';
+        this.draw();
+        return;
+      }
+      if (hit.kind === this.angleFirst.kind && hit.id === this.angleFirst.id) return;
+      const c = this.doc.addConstraint({
+        type: 'angle', a: this.angleFirst, b: hit, value: this.signedAngleDeg(this.angleFirst, hit),
+      });
+      this.angleFirst = null;
+      this.endCommand();
+      this.hint = TOOL_HINT.angle;
+      this.solveAndRefresh();
+      this.setSelection('constraint', c.id);
+      this.openDimensionEditor(c.id, false);
+      return;
+    }
+
+    if (this.tool === 'symmetry') {
+      if (this.symPointA === undefined) {
+        const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+        if (pid === undefined || pid === this.doc.originId) {
+          this.hint = 'Clique num ponto (não a origem)';
+          this.draw();
+          return;
+        }
+        this.beginCommand();
+        this.symPointA = pid;
+        this.setSelection('point', pid);
+        this.hint = 'Agora clique na reta de simetria';
+        this.draw();
+        return;
+      }
+      if (!this.symAxis) {
+        const hit = hitTestEntity(this.doc, w.x, w.y, pick);
+        if (!hit || hit.kind !== 'line') {
+          this.hint = 'A simetria precisa de uma reta como eixo';
+          this.draw();
+          return;
+        }
+        this.symAxis = hit;
+        this.setSelection('line', hit.id);
+        this.hint = 'Agora clique no segundo ponto';
+        this.draw();
+        return;
+      }
+      const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+      if (pid === undefined || pid === this.symPointA) return;
+      const c = this.doc.addConstraint({ type: 'symmetry', a: this.symPointA, axis: this.symAxis, b: pid });
+      this.symPointA = undefined;
+      this.symAxis = null;
+      this.endCommand();
+      this.hint = TOOL_HINT.symmetry;
+      this.solveAndRefresh();
+      this.setSelection('constraint', c.id);
       return;
     }
 
@@ -679,11 +873,18 @@ class SketcherApp {
 
   private cancel(): void {
     this.cancelEditor();
-    if (this.lineStart || this.circleCenter || this.arcState || this.tangentFirst || this.dimFirstPoint !== undefined) {
+    if (this.lineStart || this.circleCenter || this.arcState || this.tangentFirst || this.perpFirst
+        || this.angleFirst || this.anglePoints || this.symAxis
+        || this.symPointA !== undefined || this.dimFirstPoint !== undefined) {
       this.lineStart = null;
       this.circleCenter = null;
       this.arcState = null;
       this.tangentFirst = null;
+      this.perpFirst = null;
+      this.angleFirst = null;
+      this.anglePoints = null;
+      this.symPointA = undefined;
+      this.symAxis = null;
       this.dimFirstPoint = undefined;
       this.hint = TOOL_HINT[this.tool];
       this.preview = null;
@@ -714,6 +915,11 @@ class SketcherApp {
       this.circleCenter = null;
       this.arcState = null;
       this.tangentFirst = null;
+      this.perpFirst = null;
+      this.angleFirst = null;
+      this.anglePoints = null;
+      this.symPointA = undefined;
+      this.symAxis = null;
       this.dimFirstPoint = undefined;
       this.fitView();
       this.solveAndRefresh();
@@ -766,6 +972,10 @@ class SketcherApp {
       else if (k === 'a') this.setTool('arc');
       else if (k === 'd') this.setTool('dimension');
       else if (k === 't') this.setTool('tangent');
+      else if (k === 'e') this.setTool('perpendicular');
+      else if (k === 'g') this.setTool('angle');
+      else if (k === 'i') this.setTool('angleInternal');
+      else if (k === 's') this.setTool('symmetry');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') {
         this.arcCcw = !this.arcCcw;

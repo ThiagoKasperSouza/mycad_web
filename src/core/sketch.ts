@@ -104,8 +104,12 @@ export class SketchDocument {
     return a.kind === b.kind && a.id === b.id;
   }
 
-  private touchesTangent(c: Constraint, ref: EntityRef): boolean {
-    return c.type === 'tangent' && (this.sameRef(c.a, ref) || this.sameRef(c.b, ref));
+  /** Restrições entre entidades que referenciam `ref`. */
+  private touchesEntity(c: Constraint, ref: EntityRef): boolean {
+    if (c.type === 'tangent' || c.type === 'perpendicular' || c.type === 'angle') {
+      return this.sameRef(c.a, ref) || this.sameRef(c.b, ref);
+    }
+    return c.type === 'symmetry' && this.sameRef(c.axis, ref);
   }
 
   /** Remove um círculo/arco e as restrições associadas. */
@@ -115,7 +119,7 @@ export class SketchDocument {
     const ref: EntityRef = { kind, id };
     for (const [cid, c] of this.constraints) {
       if ((c.type === 'radius' || c.type === 'diameter') && c.entity === id) this.constraints.delete(cid);
-      if (this.touchesTangent(c, ref)) this.constraints.delete(cid);
+      if (this.touchesEntity(c, ref)) this.constraints.delete(cid);
     }
   }
 
@@ -124,15 +128,28 @@ export class SketchDocument {
     if (id === this.originId) return; // origem é permanente
     this.points.delete(id);
 
+    const removedLines: number[] = [];
     for (const [lid, l] of this.lines) {
-      if (l.a === id || l.b === id) this.lines.delete(lid);
+      if (l.a === id || l.b === id) {
+        this.lines.delete(lid);
+        removedLines.push(lid);
+      }
     }
     for (const [cid, c] of this.constraints) {
-      if (c.type === 'distance') {
+      if (c.type === 'distance' || c.type === 'symmetry') {
         if (c.a === id || c.b === id) this.constraints.delete(cid);
-      } else if (c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent') {
+      } else if (c.type === 'angle3') {
+        if (c.a === id || c.vertex === id || c.b === id) this.constraints.delete(cid);
+      } else if (c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent'
+                 && c.type !== 'perpendicular' && c.type !== 'angle') {
         const l = this.lines.get(c.line);
         if (!l || l.a === id || l.b === id) this.constraints.delete(cid);
+      }
+    }
+    for (const lid of removedLines) {
+      const ref: EntityRef = { kind: 'line', id: lid };
+      for (const [cid, c] of this.constraints) {
+        if (this.touchesEntity(c, ref)) this.constraints.delete(cid);
       }
     }
 
@@ -148,10 +165,12 @@ export class SketchDocument {
     this.lines.delete(id);
     const ref: EntityRef = { kind: 'line', id };
     for (const [cid, c] of this.constraints) {
-      if (c.type !== 'distance' && c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent' && c.line === id) {
+      if (c.type !== 'distance' && c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent'
+          && c.type !== 'perpendicular' && c.type !== 'angle' && c.type !== 'angle3'
+          && c.type !== 'symmetry' && c.line === id) {
         this.constraints.delete(cid);
       }
-      if (this.touchesTangent(c, ref)) this.constraints.delete(cid);
+      if (this.touchesEntity(c, ref)) this.constraints.delete(cid);
     }
   }
 
