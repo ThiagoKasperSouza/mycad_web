@@ -1,4 +1,4 @@
-import { entityInfo, type FilletData, type Interval } from '../core/geometry';
+import { entityInfo, type ChamferData, type FilletData, type Interval } from '../core/geometry';
 import type { SketchDocument } from '../core/sketch';
 import type { ArcEntity, Constraint, CurveKind, EntityKind, EntityRef } from '../core/types';
 import { screenToWorld, worldToScreen, type SnapResult, type Vec2, type View } from './snapping';
@@ -18,7 +18,7 @@ function constraintColor(c: Constraint, selection: Selection, base: string): str
 }
 
 export interface Preview {
-  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim' | 'polygon' | 'fillet';
+  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim' | 'polygon' | 'fillet' | 'chamfer';
   x: number;          // mundo: ponto atual do cursor (já com snap)
   y: number;
   start?: Vec2;       // mundo: início da operação (linha / centro)
@@ -28,6 +28,7 @@ export interface Preview {
   trim?: { ref: EntityRef; interval?: Interval };
   sides?: number;
   fillet?: FilletData;
+  chamfer?: ChamferData;
 }
 
 export function formatNumber(v: number): string {
@@ -738,6 +739,29 @@ function drawPreview(ctx: CanvasRenderingContext2D, preview: Preview, view: View
     for (const p of [t1, t2]) {
       ctx.beginPath();
       ctx.arc(p.x, p.y, 3.5, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (preview.kind === 'chamfer' && preview.chamfer) {
+    const c = preview.chamfer;
+    const t1 = worldToScreen(c.t1.x, c.t1.y, view);
+    const t2 = worldToScreen(c.t2.x, c.t2.y, view);
+    ctx.save();
+    ctx.strokeStyle = '#4da3ff';
+    ctx.fillStyle = '#4da3ff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(t1.x, t1.y);
+    ctx.lineTo(t2.x, t2.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const p of [t1, t2]) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 4, 0, TAU);
       ctx.fill();
     }
     ctx.restore();

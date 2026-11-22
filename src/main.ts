@@ -1,5 +1,8 @@
 import './style.css';
-import { computeFillet, entityInfo, findCorner, trim, trimInterval, type FilletData } from './core/geometry';
+import {
+  computeChamfer, computeFillet, entityInfo, findCorner, trim, trimInterval,
+  type ChamferData, type FilletData,
+} from './core/geometry';
 import { SketchDocument } from './core/sketch';
 import { analyze, internalAngle, solve, type SketchAnalysis } from './core/solver';
 import type { EntityRef, Snapshot, Tool } from './core/types';
@@ -30,6 +33,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   coincident: 'Coincidente',
   polygon: 'Polígono',
   fillet: 'Filete',
+  chamfer: 'Chanfro',
   pan: 'Pan',
 };
 
@@ -49,6 +53,7 @@ const TOOL_HINT: Record<Tool, string> = {
   coincident: 'Clique em dois pontos para forçá-los à mesma posição',
   polygon: 'Escolha os lados, clique no centro e depois no primeiro vértice',
   fillet: 'Defina o raio e clique no canto entre duas retas',
+  chamfer: 'Defina a distância e clique no canto entre duas retas',
   pan: 'Arraste para mover a vista',
 };
 
@@ -66,6 +71,8 @@ class SketcherApp {
   private polygonSidesWrap = document.getElementById('polygon-sides-wrap') as HTMLLabelElement;
   private filletRadiusEl = document.getElementById('fillet-radius') as HTMLInputElement;
   private filletRadiusWrap = document.getElementById('fillet-radius-wrap') as HTMLLabelElement;
+  private chamferDistanceEl = document.getElementById('chamfer-distance') as HTMLInputElement;
+  private chamferDistanceWrap = document.getElementById('chamfer-distance-wrap') as HTMLLabelElement;
 
   private doc = new SketchDocument();
   private view: View = { offsetX: 0, offsetY: 0, scale: 1 };
@@ -475,6 +482,26 @@ class SketcherApp {
     this.setSelection('curve', arc.id);
   }
 
+  private currentChamferDistance(): number {
+    const d = Number.parseFloat(this.chamferDistanceEl.value.replace(',', '.'));
+    return Number.isFinite(d) && d > 0 ? d : 5;
+  }
+
+  private applyChamfer(c: ChamferData): void {
+    this.beginCommand();
+    const t1 = this.doc.addPoint(c.t1.x, c.t1.y).id;
+    const t2 = this.doc.addPoint(c.t2.x, c.t2.y).id;
+    const la = this.doc.lines.get(c.lineA)!;
+    const lb = this.doc.lines.get(c.lineB)!;
+    if (la.a === c.nearA) la.a = t1; else la.b = t1;
+    if (lb.a === c.nearB) lb.a = t2; else lb.b = t2;
+    const line = this.doc.addLine(t1, t2);
+    this.doc.pruneOrphanPoints();
+    this.endCommand();
+    this.solveAndRefresh();
+    this.setSelection('line', line.id);
+  }
+
   // ----- ferramentas -----
   private setTool(tool: Tool): void {
     this.endCommand();
@@ -502,6 +529,7 @@ class SketcherApp {
     this.arcDirectionBtn.hidden = tool !== 'arc';
     this.polygonSidesWrap.hidden = tool !== 'polygon';
     this.filletRadiusWrap.hidden = tool !== 'fillet';
+    this.chamferDistanceWrap.hidden = tool !== 'chamfer';
     this.updateArcDirectionUI();
     this.refresh();
   }
@@ -646,6 +674,21 @@ class SketcherApp {
         this.solveAndRefresh();
       }
       this.draw();
+      return;
+    }
+
+    if (this.tool === 'chamfer') {
+      const corner = findCorner(this.doc, w, 100 / this.view.scale);
+      const c = corner
+        ? computeChamfer(this.doc, corner.lineA, corner.lineB, w, this.currentChamferDistance())
+        : undefined;
+      if (!c) {
+        this.hint = corner ? 'Distância grande demais para este canto' : 'Clique no canto entre duas retas';
+        this.draw();
+        return;
+      }
+      this.applyChamfer(c);
+      this.hint = TOOL_HINT.chamfer;
       return;
     }
 
@@ -1088,6 +1131,13 @@ class SketcherApp {
         this.preview = { kind: 'trim', x: w.x, y: w.y };
         this.hint = TOOL_HINT.trim;
       }
+    } else if (this.tool === 'chamfer') {
+      const corner = findCorner(this.doc, w, 100 / this.view.scale);
+      const c = corner
+        ? computeChamfer(this.doc, corner.lineA, corner.lineB, w, this.currentChamferDistance())
+        : undefined;
+      this.preview = { kind: 'chamfer', x: w.x, y: w.y, chamfer: c };
+      this.hint = c ? 'Clique para aplicar o chanfro' : TOOL_HINT.chamfer;
     } else if (this.tool === 'fillet') {
       const corner = findCorner(this.doc, w, 100 / this.view.scale);
       const f = corner
@@ -1257,6 +1307,7 @@ class SketcherApp {
       else if (k === 'o') this.setTool('coincident');
       else if (k === 'y') this.setTool('polygon');
       else if (k === 'j') this.setTool('fillet');
+      else if (k === 'k') this.setTool('chamfer');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') this.toggleArcDirection();
     });

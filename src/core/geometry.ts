@@ -342,29 +342,15 @@ export function findCorner(doc: SketchDocument, click: Pt, maxDist: number): { l
   return best;
 }
 
-export interface FilletData {
-  lineA: number;
-  lineB: number;
-  nearA: number; // id do extremo da linha A que fica no canto
-  nearB: number;
-  p: Pt;
-  t1: Pt;
-  t2: Pt;
-  center: Pt;
-  radius: number;
-  startAngle: number;
-  endAngle: number;
-  ccw: boolean;
-}
+interface Arm { id: number; dir: Pt; length: number; }
 
-/** Calcula o arco de filete tangente a duas retas no canto que contém `click`. */
-export function computeFillet(
-  doc: SketchDocument, lineA: number, lineB: number, click: Pt, radius: number,
-): FilletData | undefined {
+/** Braços do canto que contém `click`: vértice, extremo a recuar e direção de cada reta. */
+function cornerArms(doc: SketchDocument, lineA: number, lineB: number):
+  { p: Pt; A: Arm; B: Arm; theta: number } | undefined {
   const p = lineIntersectionExact(doc, lineA, lineB);
-  if (!p || radius <= 1e-6) return undefined;
+  if (!p) return undefined;
 
-  const arm = (lineId: number) => {
+  const arm = (lineId: number): Arm | undefined => {
     const l = doc.lines.get(lineId)!;
     const pa = doc.point(l.a);
     const pb = doc.point(l.b);
@@ -384,9 +370,33 @@ export function computeFillet(
   const A = arm(lineA);
   const B = arm(lineB);
   if (!A || !B) return undefined;
-
   const theta = Math.acos(Math.max(-1, Math.min(1, dot(A.dir, B.dir))));
   if (theta < 0.05 || theta > Math.PI - 0.05) return undefined;
+  return { p, A, B, theta };
+}
+
+export interface FilletData {
+  lineA: number;
+  lineB: number;
+  nearA: number;
+  nearB: number;
+  p: Pt;
+  t1: Pt;
+  t2: Pt;
+  center: Pt;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  ccw: boolean;
+}
+
+/** Calcula o arco de filete tangente a duas retas no canto que contém `click`. */
+export function computeFillet(
+  doc: SketchDocument, lineA: number, lineB: number, click: Pt, radius: number,
+): FilletData | undefined {
+  const arms = cornerArms(doc, lineA, lineB);
+  if (!arms || radius <= 1e-6) return undefined;
+  const { p, A, B, theta } = arms;
 
   const offset = radius / Math.tan(theta / 2);
   if (offset > A.length - EPS || offset > B.length - EPS) return undefined;
@@ -403,6 +413,34 @@ export function computeFillet(
   return {
     lineA, lineB, nearA: A.id, nearB: B.id, p, t1, t2, center, radius,
     startAngle, endAngle, ccw: cross > 0,
+  };
+}
+
+export interface ChamferData {
+  lineA: number;
+  lineB: number;
+  nearA: number;
+  nearB: number;
+  p: Pt;
+  t1: Pt;
+  t2: Pt;
+  distance: number;
+}
+
+/** Calcula o chanfro: dois pontos a `distance` do vértice, ligados por uma reta. */
+export function computeChamfer(
+  doc: SketchDocument, lineA: number, lineB: number, click: Pt, distance: number,
+): ChamferData | undefined {
+  const arms = cornerArms(doc, lineA, lineB);
+  if (!arms || distance <= 1e-6) return undefined;
+  const { p, A, B } = arms;
+  if (distance > A.length - EPS || distance > B.length - EPS) return undefined;
+
+  return {
+    lineA, lineB, nearA: A.id, nearB: B.id, p,
+    t1: add(p, mul(A.dir, distance)),
+    t2: add(p, mul(B.dir, distance)),
+    distance,
   };
 }
 
