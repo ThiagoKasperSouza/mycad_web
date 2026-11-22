@@ -1,6 +1,7 @@
 /** Ferramentas disponíveis no sketcher. */
 export type Tool = 'select' | 'point' | 'line' | 'circle' | 'arc'
-  | 'dimension' | 'tangent' | 'perpendicular' | 'angle' | 'angleInternal' | 'symmetry' | 'pan';
+  | 'dimension' | 'tangent' | 'perpendicular' | 'angle' | 'angleInternal' | 'symmetry'
+  | 'trim' | 'pan';
 
 /** Ponto 2D. `fixed` e origin ancoram o sketch (não são movidos pelo solver). */
 export interface PointEntity {

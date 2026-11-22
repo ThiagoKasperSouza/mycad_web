@@ -1,3 +1,4 @@
+import { entityInfo, type Interval } from '../core/geometry';
 import type { SketchDocument } from '../core/sketch';
 import type { ArcEntity, Constraint, CurveKind, EntityKind, EntityRef } from '../core/types';
 import { screenToWorld, worldToScreen, type SnapResult, type Vec2, type View } from './snapping';
@@ -17,13 +18,14 @@ function constraintColor(c: Constraint, selection: Selection, base: string): str
 }
 
 export interface Preview {
-  kind: 'point' | 'line' | 'circle' | 'arc';
+  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim';
   x: number;          // mundo: ponto atual do cursor (já com snap)
   y: number;
   start?: Vec2;       // mundo: início da operação (linha / centro)
   second?: Vec2;      // mundo: segundo ponto do arco
   ccw?: boolean;      // sentido do arco em prévia
   snap?: SnapResult;
+  trim?: { ref: EntityRef; interval?: Interval };
 }
 
 export function formatNumber(v: number): string {
@@ -599,7 +601,53 @@ function drawCurves(ctx: CanvasRenderingContext2D, doc: SketchDocument, view: Vi
   }
 }
 
-function drawPreview(ctx: CanvasRenderingContext2D, preview: Preview, view: View): void {
+function drawTrimPreview(ctx: CanvasRenderingContext2D, doc: SketchDocument, ref: EntityRef, interval: Interval, view: View): void {
+  const info = entityInfo(doc, ref);
+  ctx.save();
+  ctx.strokeStyle = '#ff6b6b';
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.setLineDash([7, 5]);
+  ctx.beginPath();
+
+  if (ref.kind === 'line' || interval.to - interval.from < 1e-4) {
+    const pa = info.pointAt(interval.from);
+    const pb = info.pointAt(interval.to);
+    const a = worldToScreen(pa.x, pa.y, view);
+    const b = worldToScreen(pb.x, pb.y, view);
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+  } else {
+    const steps = 40;
+    for (let i = 0; i <= steps; i++) {
+      const p = info.pointAt(interval.from + (interval.to - interval.from) * i / steps);
+      const s = worldToScreen(p.x, p.y, view);
+      if (i === 0) ctx.moveTo(s.x, s.y);
+      else ctx.lineTo(s.x, s.y);
+    }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  for (const param of [interval.from, interval.to]) {
+    const p = info.pointAt(param);
+    const s = worldToScreen(p.x, p.y, view);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff6b6b';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPreview(ctx: CanvasRenderingContext2D, preview: Preview, view: View, doc: SketchDocument): void {
+  if (preview.kind === 'trim' && preview.trim) {
+    const ref = preview.trim.ref;
+    const exists = ref.kind === 'line' ? doc.lines.has(ref.id)
+      : ref.kind === 'circle' ? doc.circles.has(ref.id) : doc.arcs.has(ref.id);
+    if (exists && preview.trim.interval) drawTrimPreview(ctx, doc, ref, preview.trim.interval, view);
+    return;
+  }
   const end = worldToScreen(preview.x, preview.y, view);
   ctx.save();
   ctx.setLineDash([5, 4]);
@@ -733,7 +781,7 @@ export function render(
     }
   }
 
-  if (preview) drawPreview(ctx, preview, view);
+  if (preview) drawPreview(ctx, preview, view, doc);
 }
 
 // ----- hit testing -----

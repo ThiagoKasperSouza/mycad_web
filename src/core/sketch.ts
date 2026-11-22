@@ -123,6 +123,36 @@ export class SketchDocument {
     }
   }
 
+  /** Funda `removeId` em `keepId`, preservando todas as referências. */
+  weldPoints(keepId: number, removeId: number): void {
+    if (keepId === removeId || !this.points.has(keepId) || !this.points.has(removeId)) return;
+
+    for (const l of this.lines.values()) {
+      if (l.a === removeId) l.a = keepId;
+      if (l.b === removeId) l.b = keepId;
+    }
+    for (const c of this.circles.values()) {
+      if (c.center === removeId) c.center = keepId;
+      if (c.rim === removeId) c.rim = keepId;
+    }
+    for (const arc of this.arcs.values()) {
+      if (arc.center === removeId) arc.center = keepId;
+      if (arc.a === removeId) arc.a = keepId;
+      if (arc.b === removeId) arc.b = keepId;
+    }
+    for (const c of this.constraints.values()) {
+      if (c.type === 'distance' || c.type === 'symmetry') {
+        if (c.a === removeId) c.a = keepId;
+        if (c.b === removeId) c.b = keepId;
+      } else if (c.type === 'angle3') {
+        if (c.a === removeId) c.a = keepId;
+        if (c.vertex === removeId) c.vertex = keepId;
+        if (c.b === removeId) c.b = keepId;
+      }
+    }
+    this.points.delete(removeId);
+  }
+
   /** Remove um ponto e, em cascata, entidades e restrições que o referenciam. */
   removePoint(id: number): void {
     if (id === this.originId) return; // origem é permanente

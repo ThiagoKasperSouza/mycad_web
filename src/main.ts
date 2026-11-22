@@ -1,4 +1,5 @@
 import './style.css';
+import { entityInfo, trim, trimInterval } from './core/geometry';
 import { SketchDocument } from './core/sketch';
 import { analyze, internalAngle, solve, type SketchAnalysis } from './core/solver';
 import type { EntityRef, Snapshot, Tool } from './core/types';
@@ -24,6 +25,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   angle: 'Ângulo entre retas',
   angleInternal: 'Ângulo interno',
   symmetry: 'Simetria',
+  trim: 'Recortar',
   pan: 'Pan',
 };
 
@@ -37,8 +39,9 @@ const TOOL_HINT: Record<Tool, string> = {
   tangent: 'Clique na 1ª entidade, depois na 2ª · Shift = tangência interna (curvas)',
   perpendicular: 'Clique em duas retas (ou reta e curva)',
   angle: 'Clique em duas retas (ângulo dirigido entre elas)',
-  angleInternal: 'Clique no vértice e em um ponto de cada lateral',
+  angleInternal: 'Clique no vértice e depois em cada lateral (ponto ou linha)',
   symmetry: 'Clique no 1º ponto, na reta de simetria e no 2º ponto',
+  trim: 'Passe sobre uma entidade e clique para remover o trecho destacado',
   pan: 'Arraste para mover a vista',
 };
 
@@ -286,6 +289,37 @@ class SketcherApp {
   private entityLabel(ref: EntityRef): string {
     const prefix = ref.kind === 'line' ? 'L' : ref.kind === 'circle' ? 'C' : 'A';
     return `${prefix}${ref.id}`;
+  }
+
+  /**
+   * Ponto que define uma lateral do ângulo: um ponto clicado diretamente, ou
+   * o extremo da linha clicada mais distante do vértice (para cliques no meio
+   * do segmento).
+   */
+  private armPointAt(w: Vec2, pick: number, vertexId: number): number | undefined {
+    const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+    if (pid !== undefined && pid !== vertexId) return pid;
+
+    const lid = hitTestLine(this.doc, w.x, w.y, pick);
+    if (lid === undefined) return undefined;
+    const line = this.doc.lines.get(lid)!;
+    const v = this.doc.point(vertexId);
+    const distance = (id: number) => {
+      const p = this.doc.point(id);
+      return Math.hypot(p.x - v.x, p.y - v.y);
+    };
+    // Se a lateral termina num ponto coincidente com o vértice (duplicata),
+    // funde-os para que o ângulo use o mesmo ponto das duas linhas.
+    for (const id of [line.a, line.b]) {
+      if (id === vertexId || !this.doc.points.has(id)) continue;
+      const p = this.doc.point(id);
+      if (Math.hypot(p.x - v.x, p.y - v.y) < 1e-3) this.doc.weldPoints(vertexId, id);
+    }
+
+    const endpoints = [line.a, line.b];
+    const pool = endpoints.filter((id) => id !== vertexId);
+    const candidates = pool.length > 0 ? pool : endpoints;
+    return candidates.reduce((best, id) => distance(id) > distance(best) ? id : best, candidates[0]);
   }
 
   /** Ângulo dirigido (graus) entre duas retas, normalizado para [-180, 180]. */
@@ -556,6 +590,31 @@ class SketcherApp {
       return;
     }
 
+    if (this.tool === 'trim') {
+      const hit = hitTestEntity(this.doc, w.x, w.y, pick);
+      if (!hit) {
+        this.hint = TOOL_HINT.trim;
+        this.draw();
+        return;
+      }
+      const param = entityInfo(this.doc, hit).paramAt(w);
+      if (param === undefined) return;
+      this.beginCommand();
+      const created = trim(this.doc, hit, param);
+      if (created.length === 0) {
+        this.undoStack.pop();
+        this.commandOpen = false;
+        this.hint = 'Não há interseções para recortar nesta entidade';
+        this.draw();
+        return;
+      }
+      this.endCommand();
+      this.preview = null;
+      this.hint = TOOL_HINT.trim;
+      this.solveAndRefresh();
+      return;
+    }
+
     if (this.tool === 'perpendicular') {
       const hit = hitTestEntity(this.doc, w.x, w.y, pick);
       if (!hit) {
@@ -594,25 +653,29 @@ class SketcherApp {
         this.beginCommand();
         this.anglePoints = { vertex: pid };
         this.setSelection('point', pid);
-        this.hint = 'Vértice escolhido · clique num ponto da primeira lateral';
+        this.hint = 'Vértice escolhido · clique na primeira lateral (ponto ou linha)';
         this.draw();
         return;
       }
       if (this.anglePoints.a === undefined) {
-        const pid = hitTestPoint(this.doc, w.x, w.y, pick);
-        if (pid === undefined || pid === this.anglePoints.vertex) {
-          this.hint = 'Clique num ponto da primeira lateral (diferente do vértice)';
+        const pid = this.armPointAt(w, pick, this.anglePoints.vertex);
+        if (pid === undefined) {
+          this.hint = 'Clique na primeira lateral (ponto ou linha)';
           this.draw();
           return;
         }
         this.anglePoints.a = pid;
         this.setSelection('point', pid);
-        this.hint = 'Agora clique num ponto da segunda lateral';
+        this.hint = 'Agora clique na segunda lateral (ponto ou linha)';
         this.draw();
         return;
       }
-      const pid = hitTestPoint(this.doc, w.x, w.y, pick);
-      if (pid === undefined || pid === this.anglePoints.vertex || pid === this.anglePoints.a) return;
+      const pid = this.armPointAt(w, pick, this.anglePoints.vertex);
+      if (pid === undefined || pid === this.anglePoints.a) {
+        this.hint = 'Clique numa lateral diferente da primeira';
+        this.draw();
+        return;
+      }
       const { vertex, a } = this.anglePoints;
       const value = internalAngle(this.doc, a, vertex, pid) * 180 / Math.PI;
       const c = this.doc.addConstraint({ type: 'angle3', a, vertex, b: pid, value });
@@ -871,6 +934,21 @@ class SketcherApp {
         start: this.arcState.center, second: this.arcState.start,
         ccw: this.arcState.ccw, snap: snapRes,
       };
+    } else if (this.tool === 'trim') {
+      const hit = hitTestEntity(this.doc, w.x, w.y, PICK_RADIUS / this.view.scale);
+      if (hit) {
+        const param = entityInfo(this.doc, hit).paramAt(w);
+        this.preview = {
+          kind: 'trim', x: w.x, y: w.y,
+          trim: { ref: hit, interval: param === undefined ? undefined : trimInterval(this.doc, hit, param) },
+        };
+        this.hint = this.preview.trim?.interval
+          ? 'Clique para remover o trecho em vermelho'
+          : 'Sem interseções para recortar nesta entidade';
+      } else {
+        this.preview = { kind: 'trim', x: w.x, y: w.y };
+        this.hint = TOOL_HINT.trim;
+      }
     } else if (this.tool === 'point') {
       const snapRes = snap(this.doc, w.x, w.y, this.view, { grid: GRID, radiusPx: SNAP_RADIUS });
       this.preview = { kind: 'point', x: snapRes.x, y: snapRes.y, snap: snapRes };
@@ -1011,6 +1089,7 @@ class SketcherApp {
       else if (k === 'g') this.setTool('angle');
       else if (k === 'i') this.setTool('angleInternal');
       else if (k === 's') this.setTool('symmetry');
+      else if (k === 'x') this.setTool('trim');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') {
         this.arcCcw = !this.arcCcw;

@@ -28,8 +28,9 @@ WASM atrás da mesma interface.
 - **Arco (A)** — clique centro → início → fim. Pressione **R** para inverter o sentido (↺/↻). Também é formado por pontos + centro, com raio derivado.
 - **Perpendicular (E)** — duas retas (ou reta + curva: a reta passa pelo centro).
 - **Ângulo entre retas (G)** — duas retas; mede o ângulo dirigido entre elas, que pode ser o externo dependendo da ordem dos pontos.
-- **Ângulo interno (I)** — clique no **vértice** e depois num ponto de cada lateral. Mede sempre o ângulo interno (0–180°), ideal para cantos de polígonos e trapézios. O valor em graus é editável no canvas e o solver gira as laterais. Por medir o menor ângulo entre os raios, cobre ângulos internos de polígonos convexos (0–180°).
+- **Ângulo interno (I)** — clique no **vértice** e depois em cada lateral (pode clicar no meio da linha; o extremo oposto é usado como referência). Mede sempre o ângulo interno (0–180°), ideal para cantos de polígonos e trapézios. O valor em graus é editável no canvas e o solver gira as laterais. Por medir o menor ângulo entre os raios, cobre ângulos internos de polígonos convexos (0–180°).
 - **Simetria (S)** — clique no 1º ponto, na reta-eixo e no 2º ponto; o solver espelha o par em relação ao eixo.
+- **Recortar (X)** — passe o cursor sobre uma entidade: o trecho entre interseções consecutivas é destacado em vermelho; clique para removê-lo. Funciona entre linhas, círculos e arcos. Restrições da entidade original são transferidas para o fragmento restante.
 - **Tangente (T)** — clique em duas entidades (linha, círculo ou arco) para criar tangência:
   - linha–curva: distância do centro da curva à reta = raio;
   - curva–curva: centros separados pela soma dos raios (externa) ou pela diferença (**Shift** = interna);
