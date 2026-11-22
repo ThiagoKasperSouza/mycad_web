@@ -5,6 +5,8 @@ import {
 } from './core/geometry';
 import { SketchDocument } from './core/sketch';
 import { analyze, internalAngle, solve, type SketchAnalysis } from './core/solver';
+import { defaultPlane, extrudeSketch, type BodyInfo, type SketchInfo } from './cad3d/model';
+import { ThreeViewport, type FaceSelection } from './cad3d/viewport';
 import type { EntityRef, Snapshot, Tool } from './core/types';
 import {
   angle3LabelPos, angleLabelPos, hitTestConstraint, hitTestCurve, hitTestEntity, hitTestLine, hitTestPoint, render,
@@ -74,7 +76,25 @@ class SketcherApp {
   private chamferDistanceEl = document.getElementById('chamfer-distance') as HTMLInputElement;
   private chamferDistanceWrap = document.getElementById('chamfer-distance-wrap') as HTMLLabelElement;
 
-  private doc = new SketchDocument();
+  private sketches: SketchInfo[] = [{
+    id: 1, name: 'Esboço 1', doc: new SketchDocument(), plane: defaultPlane(), extruded: false,
+  }];
+  private activeSketchId = 1;
+  private nextSketchId = 2;
+  private bodies: BodyInfo[] = [];
+  private nextBodyId = 1;
+  private mode: '2d' | '3d' = '2d';
+  private viewport!: ThreeViewport;
+  private selectedFace?: FaceSelection;
+
+  private get activeSketch(): SketchInfo {
+    return this.sketches.find((s) => s.id === this.activeSketchId)!;
+  }
+
+  private get doc(): SketchDocument {
+    return this.activeSketch.doc;
+  }
+
   private view: View = { offsetX: 0, offsetY: 0, scale: 1 };
   private width = 0;
   private height = 0;
@@ -114,10 +134,18 @@ class SketcherApp {
   };
 
   constructor() {
+    this.viewport = new ThreeViewport(
+      document.getElementById('viewport3d')!,
+      (selection) => {
+        this.selectedFace = selection;
+        this.renderSidebar();
+      },
+    );
     this.bindEvents();
     this.resize();
     this.fitView();
     this.solveAndRefresh();
+    this.renderSidebar();
   }
 
   private emptySelection(): Selection {
@@ -141,7 +169,7 @@ class SketcherApp {
   }
 
   private restore(s: Snapshot): void {
-    this.doc = SketchDocument.fromSnapshot(s);
+    this.activeSketch.doc = SketchDocument.fromSnapshot(s);
     this.commandOpen = false;
     this.selection = this.emptySelection();
     this.lineStart = null;
@@ -184,6 +212,7 @@ class SketcherApp {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
+    if (this.viewport && this.mode === '3d') this.viewport.resize();
   }
 
   private fitView(): void {
@@ -1222,7 +1251,127 @@ class SketcherApp {
   }
 
   // ----- eventos -----
+  // ----- 2D / 3D -----
+  private setMode(mode: '2d' | '3d'): void {
+    this.mode = mode;
+    document.body.classList.toggle('mode-3d', mode === '3d');
+    document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    document.getElementById('extrude-btn')!.hidden = mode === '3d';
+    document.getElementById('extrude-thickness-wrap')!.hidden = mode === '3d';
+    document.getElementById('face-sketch-btn')!.hidden = mode === '2d';
+    document.getElementById('sidebar-left')!.hidden = mode === '2d';
+    if (mode === '3d') {
+      this.cancel();
+      this.viewport.show();
+      this.viewport.focusAll();
+    } else {
+      this.viewport.hide();
+      this.resize();
+      this.refresh();
+    }
+    this.renderSidebar();
+  }
+
+  private extrudeActiveSketch(): void {
+    const thickness = Number.parseFloat(document.getElementById('extrude-thickness') instanceof HTMLInputElement
+      ? (document.getElementById('extrude-thickness') as HTMLInputElement).value : '10');
+    const value = Number.isFinite(thickness) && thickness > 0 ? thickness : 10;
+    const mesh = extrudeSketch(this.doc, this.activeSketch.plane, value);
+    if (!mesh) {
+      this.hint = 'O esboço precisa de um contorno fechado para extrudar';
+      this.draw();
+      return;
+    }
+    const body: BodyInfo = {
+      id: this.nextBodyId++,
+      name: `Corpo ${this.nextBodyId - 1}`,
+      sketchId: this.activeSketch.id,
+      thickness: value,
+      mesh,
+      visible: true,
+    };
+    this.bodies.push(body);
+    this.activeSketch.extruded = true;
+    this.viewport.addBody(body);
+    this.hint = `Corpo extrudado com espessura ${value}`;
+    this.setMode('3d');
+  }
+
+  private createSketchOnFace(): void {
+    if (!this.selectedFace) {
+      this.hint = 'Selecione uma face no modelo 3D primeiro';
+      return;
+    }
+    const sketch: SketchInfo = {
+      id: this.nextSketchId++,
+      name: `Esboço ${this.nextSketchId - 1}`,
+      doc: new SketchDocument(),
+      plane: this.selectedFace.plane,
+      extruded: false,
+    };
+    this.sketches.push(sketch);
+    this.activeSketchId = sketch.id;
+    this.selectedFace = undefined;
+    this.viewport.clearHighlight();
+    this.hint = `${sketch.name} criado na face selecionada`;
+    this.setMode('2d');
+    this.fitView();
+    this.solveAndRefresh();
+  }
+
+  private renderSidebar(): void {
+    const bodyList = document.getElementById('body-list');
+    const sketchList = document.getElementById('sketch-list');
+    if (!bodyList || !sketchList) return;
+
+    bodyList.innerHTML = this.bodies.length
+      ? [...this.bodies].reverse().map((b) => `
+        <div class="row" data-body="${b.id}">
+          <span class="label">${b.name} · ${b.thickness} mm</span>
+          <button class="eye" data-eye="${b.id}" title="${b.visible ? 'Ocultar' : 'Mostrar'}">${b.visible ? '◉' : '○'}</button>
+        </div>`).join('')
+      : '<div class="empty">Nenhum corpo</div>';
+
+    sketchList.innerHTML = this.sketches.map((s) => {
+      const kind = s.plane.normal.z === 1 && s.plane.origin.lengthSq() === 0 ? 'Plano XY' : 'Face 3D';
+      return `<div class="row${s.id === this.activeSketchId ? ' sel' : ''}" data-sketch="${s.id}">
+        <span class="label">${s.name} · ${kind}</span>
+        <span class="tag">${s.extruded ? 'extrudado' : 'aberto'}</span>
+      </div>`;
+    }).join('');
+  }
+
   private bindEvents(): void {
+    document.getElementById('mode-switch')!.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-mode]');
+      if (btn?.dataset.mode) this.setMode(btn.dataset.mode as '2d' | '3d');
+    });
+    document.getElementById('extrude-btn')!.addEventListener('click', () => this.extrudeActiveSketch());
+    document.getElementById('face-sketch-btn')!.addEventListener('click', () => this.createSketchOnFace());
+
+    document.getElementById('body-list')!.addEventListener('click', (e) => {
+      const eye = (e.target as HTMLElement).closest<HTMLElement>('[data-eye]');
+      if (eye) {
+        const id = Number(eye.dataset.eye);
+        const body = this.bodies.find((b) => b.id === id);
+        if (body) {
+          body.visible = !body.visible;
+          this.viewport.setBodyVisible(id, body.visible);
+          this.renderSidebar();
+        }
+      }
+    });
+    document.getElementById('sketch-list')!.addEventListener('click', (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-sketch]');
+      if (!row) return;
+      this.activeSketchId = Number(row.dataset.sketch);
+      this.setMode('2d');
+      this.fitView();
+      this.solveAndRefresh();
+    });
+
     document.querySelectorAll('.tool-buttons').forEach((group) => {
       group.addEventListener('click', (e) => {
         const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');

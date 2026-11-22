@@ -19,6 +19,16 @@ WASM atrás da mesma interface.
 
 > Formato de coordenadas: eixo **Y apontando para cima**, origem fixa no centro.
 
+## Modo 3D (MVP)
+
+O seletor **2D / 3D** no canto da toolbar alterna entre o sketcher e um viewport Three.js.
+
+- **Extrudar (⇧)** — o contorno fechado do esboço ativo é convertido em `THREE.Shape` e extrudado pela espessura informada no campo **Esp.**. O corpo resultante aparece no viewport 3D com órbita/zoom.
+- **Sidebar esquerdo** — lista corpos (com botão de visibilidade) e esboços (com o plano de origem: `Plano XY` ou `Face 3D`). Clicar num esboço volta ao modo 2D com ele ativo.
+- **Esboço na face** — no 3D, clique numa face do corpo para selecioná-la e use **▱**. É criado um novo esboço no plano da face (origem no ponto clicado, normal da face), e o editor 2D volta com esse esboço ativo. Extrudá-lo gera um novo corpo.
+
+Limitações desta primeira versão: extrusão sempre aditiva (sem corte/subtração), corpos são malhas (sem B-rep paramétrico), e não há ainda edição da espessura depois de criada.
+
 ## O que já funciona
 
 - **Ponto (P)** — clique para posicionar; snap em pontos existentes e na grade.
