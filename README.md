@@ -43,6 +43,7 @@ WASM atrás da mesma interface.
 - **Undo/Redo** (Ctrl+Z / Ctrl+Y), **Ajustar à vista** (F).
 - Painel de entidades/restrições com remoção individual.
 - **Graus de liberdade (GL)** na barra de status e **aviso de superdimensionamento**: restrições redundantes são destacadas em vermelho no canvas e no painel; conflitos (resíduo que não vai a zero) geram aviso explícito.
+- **UI responsiva**: até 1520 px os rótulos dos botões são ocultos; até 760 px a toolbar vira duas linhas (ferramentas principais em cima, secundárias embaixo), com botões acessíveis por toque e sem conteúdo cortado.
 
 ## Solver
 

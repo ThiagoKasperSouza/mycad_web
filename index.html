@@ -9,23 +9,25 @@
     <div id="app">
       <header class="toolbar">
         <div class="brand">MyCAD <span>sketcher</span></div>
-        <div class="tool-group" id="tool-group">
+        <div class="tool-group tool-buttons primary" id="tool-group">
           <button class="tool-btn active" data-tool="select" title="Selecionar (V)">↖ <span>Selecionar</span></button>
           <button class="tool-btn" data-tool="point" title="Ponto (P)">● <span>Ponto</span></button>
           <button class="tool-btn" data-tool="line" title="Linha (L)">╱ <span>Linha</span></button>
+          <button class="tool-btn" data-tool="dimension" title="Dimensão (D)">↔ <span>Dimensão</span></button>
           <button class="tool-btn" data-tool="circle" title="Círculo (C)">◯ <span>Círculo</span></button>
           <button class="tool-btn" data-tool="arc" title="Arco (A)">◜ <span>Arco</span></button>
-          <button class="tool-btn" data-tool="dimension" title="Dimensão (D)">↔ <span>Dimensão</span></button>
-          <div style="margin: 0 1em">|</div>
+        </div>
+        <div class="tool-group tool-buttons secondary" id="tool-group-secondary">
           <button class="tool-btn" data-tool="tangent" title="Tangência (T)">⧅ <span>Tangente</span></button>
           <button class="tool-btn" data-tool="perpendicular" title="Perpendicularidade (E)">⊥ <span>Perpendicular</span></button>
           <button class="tool-btn" data-tool="angle" title="Ângulo entre retas (G)">∠ <span>Ângulo</span></button>
           <button class="tool-btn" data-tool="angleInternal" title="Ângulo interno - vértice e duas laterais (I)">∡ <span>Ângulo interno</span></button>
           <button class="tool-btn" data-tool="symmetry" title="Simetria (S)">⋮ <span>Simetria</span></button>
+          <div style="margin: 0 1em">|</div>
           <button class="tool-btn" data-tool="trim" title="Recortar no ponto de interseção (X)">✂ <span>Recortar</span></button>
           <button class="tool-btn" data-tool="pan" title="Mover vista (Espaço / botão do meio)">✥ <span>Pan</span></button>
         </div>
-        <div class="tool-group">
+        <div class="tool-group actions">
           <button class="icon-btn" id="undo-btn" title="Desfazer (Ctrl+Z)">↶</button>
           <button class="icon-btn" id="redo-btn" title="Refazer (Ctrl+Y)">↷</button>
           <button class="icon-btn" id="fit-btn" title="Ajustar à vista (F)">⤢</button>

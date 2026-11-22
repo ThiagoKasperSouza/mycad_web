@@ -1011,9 +1011,11 @@ class SketcherApp {
 
   // ----- eventos -----
   private bindEvents(): void {
-    document.getElementById('tool-group')!.addEventListener('click', (e) => {
-      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');
-      if (btn?.dataset.tool) this.setTool(btn.dataset.tool as Tool);
+    document.querySelectorAll('.tool-buttons').forEach((group) => {
+      group.addEventListener('click', (e) => {
+        const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');
+        if (btn?.dataset.tool) this.setTool(btn.dataset.tool as Tool);
+      });
     });
 
     document.getElementById('undo-btn')!.addEventListener('click', () => this.undo());
