@@ -300,6 +300,112 @@ function pieceLength(doc: SketchDocument, ref: EntityRef): number {
   return (info.max - info.min) * r;
 }
 
+function normalize(v: Pt): Pt | undefined {
+  const l = len(v);
+  return l < EPS ? undefined : { x: v.x / l, y: v.y / l };
+}
+
+/** Interseção de duas retas infinitas (undefined se paralelas). */
+export function lineIntersectionExact(doc: SketchDocument, idA: number, idB: number): Pt | undefined {
+  const la = doc.lines.get(idA);
+  const lb = doc.lines.get(idB);
+  if (!la || !lb) return undefined;
+  const a = doc.point(la.a);
+  const b = doc.point(la.b);
+  const c = doc.point(lb.a);
+  const d = doc.point(lb.b);
+  const r = sub({ x: b.x, y: b.y }, { x: a.x, y: a.y });
+  const s = sub({ x: d.x, y: d.y }, { x: c.x, y: c.y });
+  const den = r.x * s.y - r.y * s.x;
+  if (Math.abs(den) < EPS) return undefined;
+  const qp = sub({ x: c.x, y: c.y }, { x: a.x, y: a.y });
+  const t = (qp.x * s.y - qp.y * s.x) / den;
+  return add({ x: a.x, y: a.y }, mul(r, t));
+}
+
+/** Encontra o canto (par de retas que se cruzam) cuja interseção está mais perto do clique. */
+export function findCorner(doc: SketchDocument, click: Pt, maxDist: number): { lineA: number; lineB: number } | undefined {
+  const ids = [...doc.lines.keys()];
+  let best: { lineA: number; lineB: number } | undefined;
+  let bestD = maxDist;
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const ip = lineIntersectionExact(doc, ids[i], ids[j]);
+      if (!ip) continue;
+      const d = Math.hypot(ip.x - click.x, ip.y - click.y);
+      if (d < bestD) {
+        bestD = d;
+        best = { lineA: ids[i], lineB: ids[j] };
+      }
+    }
+  }
+  return best;
+}
+
+export interface FilletData {
+  lineA: number;
+  lineB: number;
+  nearA: number; // id do extremo da linha A que fica no canto
+  nearB: number;
+  p: Pt;
+  t1: Pt;
+  t2: Pt;
+  center: Pt;
+  radius: number;
+  startAngle: number;
+  endAngle: number;
+  ccw: boolean;
+}
+
+/** Calcula o arco de filete tangente a duas retas no canto que contém `click`. */
+export function computeFillet(
+  doc: SketchDocument, lineA: number, lineB: number, click: Pt, radius: number,
+): FilletData | undefined {
+  const p = lineIntersectionExact(doc, lineA, lineB);
+  if (!p || radius <= 1e-6) return undefined;
+
+  const arm = (lineId: number) => {
+    const l = doc.lines.get(lineId)!;
+    const pa = doc.point(l.a);
+    const pb = doc.point(l.b);
+    const va = sub({ x: pa.x, y: pa.y }, p);
+    const vb = sub({ x: pb.x, y: pb.y }, p);
+    const lenA = len(va);
+    const lenB = len(vb);
+    // O extremo a substituir é o mais próximo do vértice; a direção do braço
+    // vem do outro extremo (que define o segmento que se estende a partir dele).
+    const aIsNear = lenA <= lenB;
+    const nearId = aIsNear ? l.a : l.b;
+    const farVec = aIsNear ? vb : va;
+    const dir = normalize(farVec);
+    return dir ? { id: nearId, dir, length: len(farVec) } : undefined;
+  };
+
+  const A = arm(lineA);
+  const B = arm(lineB);
+  if (!A || !B) return undefined;
+
+  const theta = Math.acos(Math.max(-1, Math.min(1, dot(A.dir, B.dir))));
+  if (theta < 0.05 || theta > Math.PI - 0.05) return undefined;
+
+  const offset = radius / Math.tan(theta / 2);
+  if (offset > A.length - EPS || offset > B.length - EPS) return undefined;
+
+  const t1 = add(p, mul(A.dir, offset));
+  const t2 = add(p, mul(B.dir, offset));
+  const bisector = normalize(add(A.dir, B.dir));
+  if (!bisector) return undefined;
+  const center = add(p, mul(bisector, radius / Math.sin(theta / 2)));
+  const startAngle = Math.atan2(t1.y - center.y, t1.x - center.x);
+  const endAngle = Math.atan2(t2.y - center.y, t2.x - center.x);
+  const cross = (t1.x - center.x) * (t2.y - center.y) - (t1.y - center.y) * (t2.x - center.x);
+
+  return {
+    lineA, lineB, nearA: A.id, nearB: B.id, p, t1, t2, center, radius,
+    startAngle, endAngle, ccw: cross > 0,
+  };
+}
+
 export interface TrimResult {
   created: EntityRef[];
   deleted: boolean; // arco inteiramente limitado pelos próprios extremos foi removido

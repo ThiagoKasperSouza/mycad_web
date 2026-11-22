@@ -1,5 +1,5 @@
 import './style.css';
-import { entityInfo, trim, trimInterval } from './core/geometry';
+import { computeFillet, entityInfo, findCorner, trim, trimInterval, type FilletData } from './core/geometry';
 import { SketchDocument } from './core/sketch';
 import { analyze, internalAngle, solve, type SketchAnalysis } from './core/solver';
 import type { EntityRef, Snapshot, Tool } from './core/types';
@@ -29,6 +29,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   trim: 'Recortar',
   coincident: 'Coincidente',
   polygon: 'Polígono',
+  fillet: 'Filete',
   pan: 'Pan',
 };
 
@@ -47,6 +48,7 @@ const TOOL_HINT: Record<Tool, string> = {
   trim: 'Passe sobre uma entidade e clique para remover o trecho destacado',
   coincident: 'Clique em dois pontos para forçá-los à mesma posição',
   polygon: 'Escolha os lados, clique no centro e depois no primeiro vértice',
+  fillet: 'Defina o raio e clique no canto entre duas retas',
   pan: 'Arraste para mover a vista',
 };
 
@@ -62,6 +64,8 @@ class SketcherApp {
   private arcDirectionBtn = document.getElementById('arc-direction-btn') as HTMLButtonElement;
   private polygonSidesEl = document.getElementById('polygon-sides') as HTMLSelectElement;
   private polygonSidesWrap = document.getElementById('polygon-sides-wrap') as HTMLLabelElement;
+  private filletRadiusEl = document.getElementById('fillet-radius') as HTMLInputElement;
+  private filletRadiusWrap = document.getElementById('fillet-radius-wrap') as HTMLLabelElement;
 
   private doc = new SketchDocument();
   private view: View = { offsetX: 0, offsetY: 0, scale: 1 };
@@ -450,6 +454,27 @@ class SketcherApp {
     this.draw();
   }
 
+  private currentFilletRadius(): number {
+    const r = Number.parseFloat(this.filletRadiusEl.value.replace(',', '.'));
+    return Number.isFinite(r) && r > 0 ? r : 5;
+  }
+
+  private applyFillet(f: FilletData): void {
+    this.beginCommand();
+    const t1 = this.doc.addPoint(f.t1.x, f.t1.y).id;
+    const t2 = this.doc.addPoint(f.t2.x, f.t2.y).id;
+    const la = this.doc.lines.get(f.lineA)!;
+    const lb = this.doc.lines.get(f.lineB)!;
+    if (la.a === f.nearA) la.a = t1; else la.b = t1;
+    if (lb.a === f.nearB) lb.a = t2; else lb.b = t2;
+    const center = this.doc.addPoint(f.center.x, f.center.y).id;
+    const arc = this.doc.addArc(center, t1, t2, f.ccw);
+    this.doc.pruneOrphanPoints();
+    this.endCommand();
+    this.solveAndRefresh();
+    this.setSelection('curve', arc.id);
+  }
+
   // ----- ferramentas -----
   private setTool(tool: Tool): void {
     this.endCommand();
@@ -476,6 +501,7 @@ class SketcherApp {
     if (tool === 'arc') this.arcCcw = true;
     this.arcDirectionBtn.hidden = tool !== 'arc';
     this.polygonSidesWrap.hidden = tool !== 'polygon';
+    this.filletRadiusWrap.hidden = tool !== 'fillet';
     this.updateArcDirectionUI();
     this.refresh();
   }
@@ -620,6 +646,21 @@ class SketcherApp {
         this.solveAndRefresh();
       }
       this.draw();
+      return;
+    }
+
+    if (this.tool === 'fillet') {
+      const corner = findCorner(this.doc, w, 100 / this.view.scale);
+      const f = corner
+        ? computeFillet(this.doc, corner.lineA, corner.lineB, w, this.currentFilletRadius())
+        : undefined;
+      if (!f) {
+        this.hint = corner ? 'Raio grande demais para este canto' : 'Clique no canto entre duas retas';
+        this.draw();
+        return;
+      }
+      this.applyFillet(f);
+      this.hint = TOOL_HINT.fillet;
       return;
     }
 
@@ -1047,6 +1088,13 @@ class SketcherApp {
         this.preview = { kind: 'trim', x: w.x, y: w.y };
         this.hint = TOOL_HINT.trim;
       }
+    } else if (this.tool === 'fillet') {
+      const corner = findCorner(this.doc, w, 100 / this.view.scale);
+      const f = corner
+        ? computeFillet(this.doc, corner.lineA, corner.lineB, w, this.currentFilletRadius())
+        : undefined;
+      this.preview = { kind: 'fillet', x: w.x, y: w.y, fillet: f };
+      this.hint = f ? 'Clique para aplicar o filete' : TOOL_HINT.fillet;
     } else if (this.tool === 'polygon' && this.polygonCenter) {
       const snapRes = snap(this.doc, w.x, w.y, this.view, {
         grid: GRID, radiusPx: SNAP_RADIUS, skipPointId: this.polygonCenter.id,
@@ -1208,6 +1256,7 @@ class SketcherApp {
       else if (k === 'x') this.setTool('trim');
       else if (k === 'o') this.setTool('coincident');
       else if (k === 'y') this.setTool('polygon');
+      else if (k === 'j') this.setTool('fillet');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') this.toggleArcDirection();
     });

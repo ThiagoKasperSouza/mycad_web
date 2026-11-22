@@ -204,6 +204,24 @@ export class SketchDocument {
     }
   }
 
+  /** Remove pontos que não são mais referenciados por nenhuma entidade/restrição. */
+  pruneOrphanPoints(): void {
+    const used = new Set<number>();
+    for (const l of this.lines.values()) { used.add(l.a); used.add(l.b); }
+    for (const c of this.circles.values()) { used.add(c.center); used.add(c.rim); }
+    for (const arc of this.arcs.values()) { used.add(arc.center); used.add(arc.a); used.add(arc.b); }
+    for (const c of this.constraints.values()) {
+      if (c.type === 'distance' || c.type === 'symmetry' || c.type === 'coincident') {
+        used.add(c.a); used.add(c.b);
+      } else if (c.type === 'angle3') {
+        used.add(c.a); used.add(c.vertex); used.add(c.b);
+      }
+    }
+    for (const id of [...this.points.keys()]) {
+      if (id !== this.originId && !used.has(id)) this.points.delete(id);
+    }
+  }
+
   /** Remove todas as entidades exceto a origem. */
   clear(): void {
     this.points.clear();

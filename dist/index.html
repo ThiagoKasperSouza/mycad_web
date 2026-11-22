@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MyCAD — Sketcher</title>
-    <script type="module" crossorigin src="/assets/index-aG5PCL0-.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-D0afyDk5.css">
+    <script type="module" crossorigin src="/assets/index-BGhFDV4R.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CEgzb5vx.css">
   </head>
   <body>
     <div id="app">
@@ -15,9 +15,12 @@
           <button class="tool-btn active" data-tool="select" title="Selecionar (V)">↖ <span>Selecionar</span></button>
           <button class="tool-btn" data-tool="point" title="Ponto (P)">● <span>Ponto</span></button>
           <button class="tool-btn" data-tool="line" title="Linha (L)">╱ <span>Linha</span></button>
-          <button class="tool-btn" data-tool="dimension" title="Dimensão (D)">↔ <span>Dimensão</span></button>
           <button class="tool-btn" data-tool="circle" title="Círculo (C)">◯ <span>Círculo</span></button>
+          <button class="tool-btn" data-tool="polygon" title="Polígono regular - 3 a 8 lados (Y)">⬡ <span>Polígono</span></button>
+          <button class="tool-btn" data-tool="fillet" title="Filete entre duas retas (J)">⌒ <span>Filete</span></button>
           <button class="tool-btn" data-tool="arc" title="Arco (A)">◜ <span>Arco</span></button>
+           <div style="margin: 0 1em">|</div>
+          <button class="tool-btn" data-tool="dimension" title="Dimensão (D)">↔ <span>Dimensão</span></button>  
         </div>
         <div class="tool-group tool-buttons secondary" id="tool-group-secondary">
           <button class="tool-btn" data-tool="tangent" title="Tangência (T)">⧅ <span>Tangente</span></button>
@@ -28,7 +31,6 @@
           <div style="margin: 0 1em">|</div>
           <button class="tool-btn" data-tool="trim" title="Recortar no ponto de interseção (X)">✂ <span>Recortar</span></button>
           <button class="tool-btn" data-tool="coincident" title="Coincidência entre pontos (O)">≡ <span>Coincidente</span></button>
-          <button class="tool-btn" data-tool="polygon" title="Polígono regular - 3 a 8 lados (Y)">⬡ <span>Polígono</span></button>
           <button class="tool-btn" data-tool="pan" title="Mover vista (Espaço / botão do meio)">✥ <span>Pan</span></button>
         </div>
         <div class="tool-group actions">
@@ -43,6 +45,10 @@
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="sketch"></canvas>
           <button id="arc-direction-btn" class="arc-direction" hidden title="Inverter sentido do arco (R)">↺ CCW</button>
+          <label class="fillet-radius" id="fillet-radius-wrap" hidden>
+            Raio
+            <input id="fillet-radius" type="number" min="0.1" step="1" value="5" aria-label="Raio do filete" />
+          </label>
           <label class="polygon-sides" id="polygon-sides-wrap" hidden>
             Lados
             <select id="polygon-sides" aria-label="Número de lados do polígono">
@@ -72,7 +78,8 @@
             <h3>Ajuda</h3>
             <ul>
               <li><b>V / P / L / C / A / D / T</b> — selecionar, ponto, linha, círculo, arco, dimensão, tangente</li>
-              <li><b>E / G / I / S / X / O / Y</b> — perpendicular, ângulo, ângulo interno, simetria, recortar, coincidente, polígono</li>
+              <li><b>E / G / I / S / X / O / Y / J</b> — perpendicular, ângulo, ângulo interno, simetria, recortar, coincidente, polígono, filete</li>
+              <li><b>Filete (J):</b> defina o raio e clique no canto entre duas retas</li>
               <li><b>Polígono (Y):</b> escolha 3 a 8 lados, clique no centro e depois no primeiro vértice</li>
               <li><b>Ângulo interno (I):</b> clique no vértice e depois em cada lateral (ponto ou linha)</li>
               <li><b>R</b> — inverte o sentido do arco (com a ferramenta Arco ativa)</li>

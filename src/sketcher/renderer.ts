@@ -1,4 +1,4 @@
-import { entityInfo, type Interval } from '../core/geometry';
+import { entityInfo, type FilletData, type Interval } from '../core/geometry';
 import type { SketchDocument } from '../core/sketch';
 import type { ArcEntity, Constraint, CurveKind, EntityKind, EntityRef } from '../core/types';
 import { screenToWorld, worldToScreen, type SnapResult, type Vec2, type View } from './snapping';
@@ -18,7 +18,7 @@ function constraintColor(c: Constraint, selection: Selection, base: string): str
 }
 
 export interface Preview {
-  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim' | 'polygon';
+  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim' | 'polygon' | 'fillet';
   x: number;          // mundo: ponto atual do cursor (já com snap)
   y: number;
   start?: Vec2;       // mundo: início da operação (linha / centro)
@@ -27,6 +27,7 @@ export interface Preview {
   snap?: SnapResult;
   trim?: { ref: EntityRef; interval?: Interval };
   sides?: number;
+  fillet?: FilletData;
 }
 
 export function formatNumber(v: number): string {
@@ -707,6 +708,38 @@ function drawPreview(ctx: CanvasRenderingContext2D, preview: Preview, view: View
     ctx.beginPath();
     ctx.arc(c.x, c.y, 3, 0, TAU);
     ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  if (preview.kind === 'fillet' && preview.fillet) {
+    const f = preview.fillet;
+    const c = worldToScreen(f.center.x, f.center.y, view);
+    const t1 = worldToScreen(f.t1.x, f.t1.y, view);
+    const t2 = worldToScreen(f.t2.x, f.t2.y, view);
+    ctx.save();
+    ctx.strokeStyle = '#4da3ff';
+    ctx.fillStyle = '#4da3ff';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, f.radius * view.scale, -f.startAngle, -f.endAngle, f.ccw);
+    ctx.stroke();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(77,163,255,.5)';
+    ctx.beginPath();
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(t1.x, t1.y);
+    ctx.moveTo(c.x, c.y);
+    ctx.lineTo(t2.x, t2.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#4da3ff';
+    for (const p of [t1, t2]) {
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.5, 0, TAU);
+      ctx.fill();
+    }
     ctx.restore();
     return;
   }
