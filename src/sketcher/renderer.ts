@@ -318,7 +318,8 @@ function drawConstraint(ctx: CanvasRenderingContext2D, c: Constraint, doc: Sketc
 
 function drawInferenceBadge(ctx: CanvasRenderingContext2D, c: Constraint, doc: SketchDocument, view: View): void {
   if (c.type === 'distance' || c.type === 'radius' || c.type === 'diameter' || c.type === 'tangent'
-      || c.type === 'perpendicular' || c.type === 'angle' || c.type === 'angle3' || c.type === 'symmetry') return;
+      || c.type === 'perpendicular' || c.type === 'angle' || c.type === 'angle3'
+      || c.type === 'symmetry' || c.type === 'coincident') return;
   const l = doc.lines.get(c.line);
   if (!l) return;
   const a = doc.point(l.a);
@@ -511,6 +512,16 @@ function angle3Glyph(doc: SketchDocument, c: Extract<Constraint, { type: 'angle3
   };
 }
 
+function coincidentGlyph(doc: SketchDocument, c: Extract<Constraint, { type: 'coincident' }>, view: View): SimpleGlyph & { a: Vec2; b: Vec2 } | undefined {
+  const pa = doc.points.get(c.a);
+  const pb = doc.points.get(c.b);
+  if (!pa || !pb) return undefined;
+  const a = worldToScreen(pa.x, pa.y, view);
+  const b = worldToScreen(pb.x, pb.y, view);
+  const anchor = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 15 };
+  return { a, b, anchor, rect: { x: anchor.x - 18, y: anchor.y - 10, w: 36, h: 20 } };
+}
+
 function symmetryGlyph(doc: SketchDocument, c: Extract<Constraint, { type: 'symmetry' }>, view: View): SimpleGlyph & { a: Vec2; b: Vec2 } | undefined {
   const pa = doc.points.get(c.a);
   const pb = doc.points.get(c.b);
@@ -549,6 +560,30 @@ function drawExtraGlyphs(ctx: CanvasRenderingContext2D, c: Constraint, doc: Sket
     ctx.arc(g.center.x, g.center.y, g.radius, g.start, g.end, g.ccw);
     ctx.stroke();
     drawText(ctx, g.text, g.anchor, g.rect, color);
+    return;
+  }
+
+  if (c.type === 'coincident') {
+    const g = coincidentGlyph(doc, c, view);
+    if (!g) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(g.a.x, g.a.y);
+    ctx.lineTo(g.b.x, g.b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#1e1730';
+    roundRect(ctx, g.rect.x, g.rect.y, g.rect.w, g.rect.h, 4);
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.font = '600 13px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('≡', g.anchor.x, g.anchor.y + 0.5);
     return;
   }
 
@@ -912,6 +947,8 @@ export function hitTestConstraint(doc: SketchDocument, view: View, sx: number, s
       rect = angle3Glyph(doc, c, view)?.rect;
     } else if (c.type === 'symmetry') {
       rect = symmetryGlyph(doc, c, view)?.rect;
+    } else if (c.type === 'coincident') {
+      rect = coincidentGlyph(doc, c, view)?.rect;
     }
     if (!rect) continue;
     if (sx >= rect.x - 3 && sx <= rect.x + rect.w + 3 && sy >= rect.y - 3 && sy <= rect.y + rect.h + 3) return c.id;

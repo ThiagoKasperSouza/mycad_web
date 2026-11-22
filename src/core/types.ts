@@ -1,7 +1,7 @@
 /** Ferramentas disponíveis no sketcher. */
 export type Tool = 'select' | 'point' | 'line' | 'circle' | 'arc'
   | 'dimension' | 'tangent' | 'perpendicular' | 'angle' | 'angleInternal' | 'symmetry'
-  | 'trim' | 'pan';
+  | 'trim' | 'coincident' | 'pan';
 
 /** Ponto 2D. `fixed` e origin ancoram o sketch (não são movidos pelo solver). */
 export interface PointEntity {
@@ -57,7 +57,8 @@ export type Constraint =
   | { id: number; type: 'perpendicular'; a: EntityRef; b: EntityRef }
   | { id: number; type: 'angle'; a: EntityRef; b: EntityRef; value: number } // graus, dirigido
   | { id: number; type: 'angle3'; a: number; vertex: number; b: number; value: number } // interno, 0–180°
-  | { id: number; type: 'symmetry'; a: number; axis: EntityRef; b: number };
+  | { id: number; type: 'symmetry'; a: number; axis: EntityRef; b: number }
+  | { id: number; type: 'coincident'; a: number; b: number };
 
 /** Entrada para criação de restrição (sem id). */
 export type ConstraintInput =
@@ -70,7 +71,8 @@ export type ConstraintInput =
   | { type: 'perpendicular'; a: EntityRef; b: EntityRef }
   | { type: 'angle'; a: EntityRef; b: EntityRef; value: number }
   | { type: 'angle3'; a: number; vertex: number; b: number; value: number }
-  | { type: 'symmetry'; a: number; axis: EntityRef; b: number };
+  | { type: 'symmetry'; a: number; axis: EntityRef; b: number }
+  | { type: 'coincident'; a: number; b: number };
 
 /** Tipo de entidade curva (para hit-testing e remoção). */
 export type CurveKind = 'circle' | 'arc';

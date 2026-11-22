@@ -166,7 +166,7 @@ export class SketchDocument {
       }
     }
     for (const [cid, c] of this.constraints) {
-      if (c.type === 'distance' || c.type === 'symmetry') {
+      if (c.type === 'distance' || c.type === 'symmetry' || c.type === 'coincident') {
         if (c.a === id || c.b === id) this.constraints.delete(cid);
       } else if (c.type === 'angle3') {
         if (c.a === id || c.vertex === id || c.b === id) this.constraints.delete(cid);
@@ -197,7 +197,7 @@ export class SketchDocument {
     for (const [cid, c] of this.constraints) {
       if (c.type !== 'distance' && c.type !== 'radius' && c.type !== 'diameter' && c.type !== 'tangent'
           && c.type !== 'perpendicular' && c.type !== 'angle' && c.type !== 'angle3'
-          && c.type !== 'symmetry' && c.line === id) {
+          && c.type !== 'symmetry' && c.type !== 'coincident' && c.line === id) {
         this.constraints.delete(cid);
       }
       if (this.touchesEntity(c, ref)) this.constraints.delete(cid);

@@ -156,6 +156,12 @@ function residuals(c: Constraint, doc: SketchDocument): number[] {
       const along = (B.x - A.x) * ux + (B.y - A.y) * uy;
       return [signedA + signedB, along];
     }
+    case 'coincident': {
+      if (c.a === c.b || !doc.points.has(c.a) || !doc.points.has(c.b)) return [];
+      const a = doc.point(c.a);
+      const b = doc.point(c.b);
+      return [b.x - a.x, b.y - a.y];
+    }
     case 'radius':
     case 'diameter': {
       const target = c.type === 'radius' ? c.value : c.value / 2;
@@ -189,6 +195,7 @@ function isActive(c: Constraint, doc: SketchDocument): boolean {
   }
   if (c.type === 'symmetry') return doc.lines.has(c.axis.id) && doc.points.has(c.a) && doc.points.has(c.b);
   if (c.type === 'angle3') return doc.points.has(c.a) && doc.points.has(c.vertex) && doc.points.has(c.b);
+  if (c.type === 'coincident') return doc.points.has(c.a) && doc.points.has(c.b);
   return doc.circles.has(c.entity) || doc.arcs.has(c.entity);
 }
 

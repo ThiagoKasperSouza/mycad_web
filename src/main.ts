@@ -26,6 +26,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   angleInternal: 'Ângulo interno',
   symmetry: 'Simetria',
   trim: 'Recortar',
+  coincident: 'Coincidente',
   pan: 'Pan',
 };
 
@@ -42,6 +43,7 @@ const TOOL_HINT: Record<Tool, string> = {
   angleInternal: 'Clique no vértice e depois em cada lateral (ponto ou linha)',
   symmetry: 'Clique no 1º ponto, na reta de simetria e no 2º ponto',
   trim: 'Passe sobre uma entidade e clique para remover o trecho destacado',
+  coincident: 'Clique em dois pontos para forçá-los à mesma posição',
   pan: 'Arraste para mover a vista',
 };
 
@@ -77,6 +79,7 @@ class SketcherApp {
   private anglePoints: { vertex: number; a?: number } | null = null;
   private symPointA: number | undefined;
   private symAxis: EntityRef | null = null;
+  private coincidentFirst: number | undefined;
   private dimFirstPoint: number | undefined;
   private dragging: { id: number } | null = null;
   private panning: { sx: number; sy: number; ox: number; oy: number } | null = null;
@@ -132,6 +135,7 @@ class SketcherApp {
     this.anglePoints = null;
     this.symPointA = undefined;
     this.symAxis = null;
+    this.coincidentFirst = undefined;
     this.dimFirstPoint = undefined;
     this.dragging = null;
     this.cancelEditor();
@@ -272,7 +276,8 @@ class SketcherApp {
       else if (c.type === 'perpendicular') label = `perpendicular ${this.entityLabel(c.a)} ⊥ ${this.entityLabel(c.b)}`;
       else if (c.type === 'angle') label = `ângulo = ${this.fmt(c.value)}° (${this.entityLabel(c.a)}, ${this.entityLabel(c.b)})`;
       else if (c.type === 'angle3') label = `ângulo interno = ${this.fmt(c.value)}° (P${c.a}, P${c.vertex}, P${c.b})`;
-      else label = `simetria P${c.a} ↔ P${c.b} sobre ${this.entityLabel(c.axis)}`;
+      else if (c.type === 'symmetry') label = `simetria P${c.a} ↔ P${c.b} sobre ${this.entityLabel(c.axis)}`;
+      else label = `coincidente P${c.a} ≡ P${c.b}`;
       const redundant = this.selection.redundant.has(c.id);
       return this.row('constraint', c.id, `C${c.id} &nbsp; ${label}`,
         redundant ? '<span class="tag warn">redundante</span>' : '',
@@ -437,6 +442,7 @@ class SketcherApp {
     this.anglePoints = null;
     this.symPointA = undefined;
     this.symAxis = null;
+    this.coincidentFirst = undefined;
     this.dimFirstPoint = undefined;
     this.preview = null;
     this.hint = TOOL_HINT[tool];
@@ -587,6 +593,32 @@ class SketcherApp {
         this.solveAndRefresh();
       }
       this.draw();
+      return;
+    }
+
+    if (this.tool === 'coincident') {
+      const pid = hitTestPoint(this.doc, w.x, w.y, pick);
+      if (pid === undefined) {
+        this.coincidentFirst = undefined;
+        this.hint = TOOL_HINT.coincident;
+        this.draw();
+        return;
+      }
+      if (this.coincidentFirst === undefined) {
+        this.beginCommand();
+        this.coincidentFirst = pid;
+        this.setSelection('point', pid);
+        this.hint = 'Agora clique no segundo ponto';
+        this.draw();
+        return;
+      }
+      if (pid === this.coincidentFirst) return;
+      const c = this.doc.addConstraint({ type: 'coincident', a: this.coincidentFirst, b: pid });
+      this.coincidentFirst = undefined;
+      this.endCommand();
+      this.hint = TOOL_HINT.coincident;
+      this.solveAndRefresh();
+      this.setSelection('constraint', c.id);
       return;
     }
 
@@ -751,6 +783,7 @@ class SketcherApp {
       const c = this.doc.addConstraint({ type: 'symmetry', a: this.symPointA, axis: this.symAxis, b: pid });
       this.symPointA = undefined;
       this.symAxis = null;
+    this.coincidentFirst = undefined;
       this.endCommand();
       this.hint = TOOL_HINT.symmetry;
       this.solveAndRefresh();
@@ -988,7 +1021,8 @@ class SketcherApp {
     this.cancelEditor();
     if (this.lineStart || this.circleCenter || this.arcState || this.tangentFirst || this.perpFirst
         || this.angleFirst || this.anglePoints || this.symAxis
-        || this.symPointA !== undefined || this.dimFirstPoint !== undefined) {
+        || this.symPointA !== undefined || this.coincidentFirst !== undefined
+        || this.dimFirstPoint !== undefined) {
       this.lineStart = null;
       this.circleCenter = null;
       this.arcState = null;
@@ -998,6 +1032,7 @@ class SketcherApp {
       this.anglePoints = null;
       this.symPointA = undefined;
       this.symAxis = null;
+    this.coincidentFirst = undefined;
       this.dimFirstPoint = undefined;
       this.hint = TOOL_HINT[this.tool];
       this.preview = null;
@@ -1035,6 +1070,7 @@ class SketcherApp {
       this.anglePoints = null;
       this.symPointA = undefined;
       this.symAxis = null;
+    this.coincidentFirst = undefined;
       this.dimFirstPoint = undefined;
       this.fitView();
       this.solveAndRefresh();
@@ -1092,6 +1128,7 @@ class SketcherApp {
       else if (k === 'i') this.setTool('angleInternal');
       else if (k === 's') this.setTool('symmetry');
       else if (k === 'x') this.setTool('trim');
+      else if (k === 'o') this.setTool('coincident');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') {
         this.arcCcw = !this.arcCcw;
