@@ -376,10 +376,10 @@ function cornerArms(doc: SketchDocument, lineA: number, lineB: number):
 }
 
 export interface FilletData {
-  lineA: number;
-  lineB: number;
-  nearA: number;
-  nearB: number;
+  refA: EntityRef;
+  refB: EntityRef;
+  endpointA?: number; // extremo da reta A a ser recuado (apenas para linhas)
+  endpointB?: number;
   p: Pt;
   t1: Pt;
   t2: Pt;
@@ -390,30 +390,180 @@ export interface FilletData {
   ccw: boolean;
 }
 
-/** Calcula o arco de filete tangente a duas retas no canto que contém `click`. */
+interface OffsetCurve {
+  kind: 'line' | 'circle';
+  p: Pt;        // ponto da reta ou centro do círculo
+  dir?: Pt;     // direção unitária da reta
+  r?: number;   // raio do círculo offset
+}
+
+/** Curvas a distância `d` de cada entidade (dois lados possíveis). */
+function offsetCurves(doc: SketchDocument, ref: EntityRef, d: number): OffsetCurve[] {
+  if (ref.kind === 'line') {
+    const l = doc.lines.get(ref.id)!;
+    const a = doc.point(l.a);
+    const b = doc.point(l.b);
+    const dir = normalize(sub({ x: b.x, y: b.y }, { x: a.x, y: a.y }));
+    if (!dir) return [];
+    const n = { x: -dir.y, y: dir.x };
+    return [
+      { kind: 'line', p: add({ x: a.x, y: a.y }, mul(n, d)), dir },
+      { kind: 'line', p: sub({ x: a.x, y: a.y }, mul(n, d)), dir },
+    ];
+  }
+  const center = doc.entityCenter(ref);
+  const r = doc.entityRadius(ref);
+  if (!center || r === undefined) return [];
+  const o = { x: center.x, y: center.y };
+  const out: OffsetCurve[] = [{ kind: 'circle', p: o, r: r + d }];
+  if (r > d + EPS) out.push({ kind: 'circle', p: o, r: r - d });
+  return out;
+}
+
+function infiniteIntersection(p1: Pt, d1: Pt, p2: Pt, d2: Pt): Pt | undefined {
+  const den = d1.x * d2.y - d1.y * d2.x;
+  if (Math.abs(den) < EPS) return undefined;
+  const qp = sub(p2, p1);
+  const t = (qp.x * d2.y - qp.y * d2.x) / den;
+  return add(p1, mul(d1, t));
+}
+
+function lineCircleInfinite(p: Pt, dir: Pt, center: Pt, r: number): Pt[] {
+  const f = sub(p, center);
+  const b = dot(f, dir);
+  const c = dot(f, f) - r * r;
+  const disc = b * b - c;
+  if (disc < 0) return [];
+  const s = Math.sqrt(disc);
+  return [add(p, mul(dir, -b + s)), add(p, mul(dir, -b - s))];
+}
+
+function offsetIntersections(a: OffsetCurve, b: OffsetCurve): Pt[] {
+  if (a.kind === 'circle' && b.kind === 'circle') {
+    return circleCircle(a.p, a.r!, b.p, b.r!);
+  }
+  if (a.kind === 'line' && b.kind === 'line') {
+    const p = infiniteIntersection(a.p, a.dir!, b.p, b.dir!);
+    return p ? [p] : [];
+  }
+  const line = a.kind === 'line' ? a : b;
+  const circle = a.kind === 'circle' ? a : b;
+  return lineCircleInfinite(line.p, line.dir!, circle.p, circle.r!);
+}
+
+/** Ponto de tangência de uma circunferência de filete com a entidade original. */
+function tangentPoint(doc: SketchDocument, ref: EntityRef, center: Pt, radius: number):
+  { point: Pt; endpoint?: number } | undefined {
+  if (ref.kind === 'line') {
+    const l = doc.lines.get(ref.id)!;
+    const a = doc.point(l.a);
+    const b = doc.point(l.b);
+    const d = sub({ x: b.x, y: b.y }, { x: a.x, y: a.y });
+    const l2 = dot(d, d);
+    if (l2 < EPS) return undefined;
+    const t = dot(sub(center, { x: a.x, y: a.y }), d) / l2;
+    if (t < -EPS || t > 1 + EPS) return undefined;
+    const proj = add({ x: a.x, y: a.y }, mul(d, Math.max(0, Math.min(1, t))));
+    if (Math.abs(Math.hypot(center.x - proj.x, center.y - proj.y) - radius) > 1e-4) return undefined;
+    return { point: proj, endpoint: t <= 0.5 ? l.a : l.b };
+  }
+  const centerPt = doc.entityCenter(ref);
+  const r = doc.entityRadius(ref);
+  if (!centerPt || r === undefined) return undefined;
+  const o = { x: centerPt.x, y: centerPt.y };
+  const d = Math.hypot(center.x - o.x, center.y - o.y);
+  if (d < EPS || Math.abs(d - r) < EPS || Math.abs(Math.abs(d - r) - radius) > 1e-4) return undefined;
+  const point = add(o, mul({ x: (center.x - o.x) / d, y: (center.y - o.y) / d }, r));
+  if (ref.kind === 'arc' && entityInfo(doc, ref).paramAt(point) === undefined) return undefined;
+  return { point };
+}
+
+/** Distância de um ponto até uma entidade (usada para escolher o par sob o cursor). */
+function distanceToEntity(doc: SketchDocument, ref: EntityRef, p: Pt): number {
+  if (ref.kind === 'line') {
+    const l = doc.lines.get(ref.id)!;
+    const a = doc.point(l.a);
+    const b = doc.point(l.b);
+    const d = sub({ x: b.x, y: b.y }, { x: a.x, y: a.y });
+    const l2 = dot(d, d);
+    const t = l2 < EPS ? 0 : Math.max(0, Math.min(1, dot(sub(p, { x: a.x, y: a.y }), d) / l2));
+    return Math.hypot(p.x - (a.x + t * d.x), p.y - (a.y + t * d.y));
+  }
+  const c = doc.entityCenter(ref);
+  const r = doc.entityRadius(ref);
+  if (!c || r === undefined) return Infinity;
+  const dist = Math.abs(Math.hypot(p.x - c.x, p.y - c.y) - r);
+  if (ref.kind === 'arc') {
+    const arc = doc.arcs.get(ref.id)!;
+    const theta = Math.atan2(p.y - c.y, p.x - c.x);
+    const info = arcInfo(doc, arc.id);
+    let delta = theta - info.start;
+    if (info.ccw) {
+      while (delta < 0) delta += TAU;
+      if (delta > info.sweep + EPS) return Infinity;
+    } else {
+      while (delta > 0) delta -= TAU;
+      if (delta < info.sweep - EPS) return Infinity;
+    }
+  }
+  return dist;
+}
+
+/** Duas entidades mais próximas do clique (candidate ao filete). */
+export function findCurvePair(doc: SketchDocument, click: Pt, maxDist: number): { a: EntityRef; b: EntityRef } | undefined {
+  const refs: EntityRef[] = [
+    ...[...doc.lines.keys()].map((id) => ({ kind: 'line' as const, id })),
+    ...[...doc.circles.keys()].map((id) => ({ kind: 'circle' as const, id })),
+    ...[...doc.arcs.keys()].map((id) => ({ kind: 'arc' as const, id })),
+  ];
+  const ranked = refs
+    .map((ref) => ({ ref, d: distanceToEntity(doc, ref, click) }))
+    .filter((item) => item.d <= maxDist)
+    .sort((x, y) => x.d - y.d);
+  return ranked.length >= 2 ? { a: ranked[0].ref, b: ranked[1].ref } : undefined;
+}
+
+/**
+ * Filete entre quaisquer duas entidades (linha, círculo ou arco).
+ * Calcula centros candidatos na interseção das curvas offset e escolhe o arco
+ * cujo ponto médio fica mais perto do clique.
+ */
 export function computeFillet(
-  doc: SketchDocument, lineA: number, lineB: number, click: Pt, radius: number,
+  doc: SketchDocument, refA: EntityRef, refB: EntityRef, click: Pt, radius: number,
 ): FilletData | undefined {
-  const arms = cornerArms(doc, lineA, lineB);
-  if (!arms || radius <= 1e-6) return undefined;
-  const { p, A, B, theta } = arms;
+  if ((refA.kind === refB.kind && refA.id === refB.id) || radius <= 1e-6) return undefined;
 
-  const offset = radius / Math.tan(theta / 2);
-  if (offset > A.length - EPS || offset > B.length - EPS) return undefined;
+  let best: FilletData | undefined;
+  let bestScore = Infinity;
+  for (const oa of offsetCurves(doc, refA, radius)) {
+    for (const ob of offsetCurves(doc, refB, radius)) {
+      for (const center of offsetIntersections(oa, ob)) {
+        const A = tangentPoint(doc, refA, center, radius);
+        const B = tangentPoint(doc, refB, center, radius);
+        if (!A || !B) continue;
 
-  const t1 = add(p, mul(A.dir, offset));
-  const t2 = add(p, mul(B.dir, offset));
-  const bisector = normalize(add(A.dir, B.dir));
-  if (!bisector) return undefined;
-  const center = add(p, mul(bisector, radius / Math.sin(theta / 2)));
-  const startAngle = Math.atan2(t1.y - center.y, t1.x - center.x);
-  const endAngle = Math.atan2(t2.y - center.y, t2.x - center.x);
-  const cross = (t1.x - center.x) * (t2.y - center.y) - (t1.y - center.y) * (t2.x - center.x);
+        const a1 = Math.atan2(A.point.y - center.y, A.point.x - center.x);
+        const a2 = Math.atan2(B.point.y - center.y, B.point.x - center.x);
+        let delta = a2 - a1;
+        while (delta > Math.PI) delta -= TAU;
+        while (delta < -Math.PI) delta += TAU;
+        if (Math.abs(delta) < 1e-3) continue;
 
-  return {
-    lineA, lineB, nearA: A.id, nearB: B.id, p, t1, t2, center, radius,
-    startAngle, endAngle, ccw: cross > 0,
-  };
+        const mid = a1 + delta / 2;
+        const midPoint = add(center, mul({ x: Math.cos(mid), y: Math.sin(mid) }, radius));
+        const score = Math.hypot(midPoint.x - click.x, midPoint.y - click.y);
+        if (score < bestScore) {
+          bestScore = score;
+          best = {
+            refA, refB, endpointA: A.endpoint, endpointB: B.endpoint,
+            p: center, t1: A.point, t2: B.point, center, radius,
+            startAngle: a1, endAngle: a2, ccw: delta > 0,
+          };
+        }
+      }
+    }
+  }
+  return best;
 }
 
 export interface ChamferData {

@@ -1,6 +1,6 @@
 import './style.css';
 import {
-  computeChamfer, computeFillet, entityInfo, findCorner, trim, trimInterval,
+  computeChamfer, computeFillet, entityInfo, findCorner, findCurvePair, trim, trimInterval,
   type ChamferData, type FilletData,
 } from './core/geometry';
 import { SketchDocument } from './core/sketch';
@@ -52,7 +52,7 @@ const TOOL_HINT: Record<Tool, string> = {
   trim: 'Passe sobre uma entidade e clique para remover o trecho destacado',
   coincident: 'Clique em dois pontos para forçá-los à mesma posição',
   polygon: 'Escolha os lados, clique no centro e depois no primeiro vértice',
-  fillet: 'Defina o raio e clique no canto entre duas retas',
+  fillet: 'Defina o raio e clique perto do encontro de duas entidades',
   chamfer: 'Defina a distância e clique no canto entre duas retas',
   pan: 'Arraste para mover a vista',
 };
@@ -470,10 +470,14 @@ class SketcherApp {
     this.beginCommand();
     const t1 = this.doc.addPoint(f.t1.x, f.t1.y).id;
     const t2 = this.doc.addPoint(f.t2.x, f.t2.y).id;
-    const la = this.doc.lines.get(f.lineA)!;
-    const lb = this.doc.lines.get(f.lineB)!;
-    if (la.a === f.nearA) la.a = t1; else la.b = t1;
-    if (lb.a === f.nearB) lb.a = t2; else lb.b = t2;
+    if (f.endpointA !== undefined) {
+      const line = this.doc.lines.get(f.refA.id)!;
+      if (line.a === f.endpointA) line.a = t1; else line.b = t1;
+    }
+    if (f.endpointB !== undefined) {
+      const line = this.doc.lines.get(f.refB.id)!;
+      if (line.a === f.endpointB) line.a = t2; else line.b = t2;
+    }
     const center = this.doc.addPoint(f.center.x, f.center.y).id;
     const arc = this.doc.addArc(center, t1, t2, f.ccw);
     this.doc.pruneOrphanPoints();
@@ -693,12 +697,12 @@ class SketcherApp {
     }
 
     if (this.tool === 'fillet') {
-      const corner = findCorner(this.doc, w, 100 / this.view.scale);
-      const f = corner
-        ? computeFillet(this.doc, corner.lineA, corner.lineB, w, this.currentFilletRadius())
+      const pair = findCurvePair(this.doc, w, 100 / this.view.scale);
+      const f = pair
+        ? computeFillet(this.doc, pair.a, pair.b, w, this.currentFilletRadius())
         : undefined;
       if (!f) {
-        this.hint = corner ? 'Raio grande demais para este canto' : 'Clique no canto entre duas retas';
+        this.hint = pair ? 'Raio inválido para este par de entidades' : 'Clique perto de duas entidades';
         this.draw();
         return;
       }
@@ -1139,9 +1143,9 @@ class SketcherApp {
       this.preview = { kind: 'chamfer', x: w.x, y: w.y, chamfer: c };
       this.hint = c ? 'Clique para aplicar o chanfro' : TOOL_HINT.chamfer;
     } else if (this.tool === 'fillet') {
-      const corner = findCorner(this.doc, w, 100 / this.view.scale);
-      const f = corner
-        ? computeFillet(this.doc, corner.lineA, corner.lineB, w, this.currentFilletRadius())
+      const pair = findCurvePair(this.doc, w, 100 / this.view.scale);
+      const f = pair
+        ? computeFillet(this.doc, pair.a, pair.b, w, this.currentFilletRadius())
         : undefined;
       this.preview = { kind: 'fillet', x: w.x, y: w.y, fillet: f };
       this.hint = f ? 'Clique para aplicar o filete' : TOOL_HINT.fillet;
