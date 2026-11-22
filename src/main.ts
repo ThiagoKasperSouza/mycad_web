@@ -56,6 +56,7 @@ class SketcherApp {
   private ctx = this.canvas.getContext('2d')!;
   private editorBox = document.getElementById('inline-editor') as HTMLDivElement;
   private dimInput = document.getElementById('dim-input') as HTMLInputElement;
+  private arcDirectionBtn = document.getElementById('arc-direction-btn') as HTMLButtonElement;
 
   private doc = new SketchDocument();
   private view: View = { offsetX: 0, offsetY: 0, scale: 1 };
@@ -428,6 +429,20 @@ class SketcherApp {
     }
   }
 
+  // ----- sentido do arco -----
+  private updateArcDirectionUI(): void {
+    this.arcDirectionBtn.textContent = this.arcCcw ? '↺ CCW' : '↻ CW';
+    this.arcDirectionBtn.title = `Sentido do arco: ${this.arcCcw ? 'anti-horário' : 'horário'} (R)`;
+  }
+
+  private toggleArcDirection(): void {
+    this.arcCcw = !this.arcCcw;
+    if (this.arcState) this.arcState.ccw = this.arcCcw;
+    this.updateArcDirectionUI();
+    this.hint = `Arco: sentido ${this.arcCcw ? 'anti-horário (↺)' : 'horário (↻)'} · R inverte`;
+    this.draw();
+  }
+
   // ----- ferramentas -----
   private setTool(tool: Tool): void {
     this.endCommand();
@@ -450,6 +465,9 @@ class SketcherApp {
       btn.classList.toggle('active', btn.dataset.tool === tool);
     });
     this.canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
+    if (tool === 'arc') this.arcCcw = true;
+    this.arcDirectionBtn.hidden = tool !== 'arc';
+    this.updateArcDirectionUI();
     this.refresh();
   }
 
@@ -632,8 +650,8 @@ class SketcherApp {
       const param = entityInfo(this.doc, hit).paramAt(w);
       if (param === undefined) return;
       this.beginCommand();
-      const created = trim(this.doc, hit, param);
-      if (created.length === 0) {
+      const result = trim(this.doc, hit, param);
+      if (result.created.length === 0 && !result.deleted) {
         this.undoStack.pop();
         this.commandOpen = false;
         this.hint = 'Não há interseções para recortar nesta entidade';
@@ -1102,6 +1120,8 @@ class SketcherApp {
       if (cid !== undefined) this.openDimensionEditor(cid, true);
     });
 
+    this.arcDirectionBtn.addEventListener('click', () => this.toggleArcDirection());
+
     this.dimInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); this.commitEditor(); }
       else if (e.key === 'Escape') { e.preventDefault(); this.cancelEditor(); this.draw(); }
@@ -1130,12 +1150,7 @@ class SketcherApp {
       else if (k === 'x') this.setTool('trim');
       else if (k === 'o') this.setTool('coincident');
       else if (k === 'f') { this.fitView(); this.draw(); }
-      else if (k === 'r' && this.tool === 'arc') {
-        this.arcCcw = !this.arcCcw;
-        if (this.arcState) this.arcState.ccw = this.arcCcw;
-        this.hint = `Arco: sentido ${this.arcCcw ? 'anti-horário (↺)' : 'horário (↻)'} · R inverte`;
-        this.draw();
-      }
+      else if (k === 'r' && this.tool === 'arc') this.toggleArcDirection();
     });
     window.addEventListener('keyup', (e) => { if (e.key === ' ') this.spaceDown = false; });
     window.addEventListener('resize', () => { this.resize(); this.draw(); });

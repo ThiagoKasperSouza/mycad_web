@@ -300,16 +300,22 @@ function pieceLength(doc: SketchDocument, ref: EntityRef): number {
   return (info.max - info.min) * r;
 }
 
+export interface TrimResult {
+  created: EntityRef[];
+  deleted: boolean; // arco inteiramente limitado pelos próprios extremos foi removido
+}
+
 /**
  * Recorta o trecho clicado de `ref`, preservando o restante como novas entidades.
  * Restrições da entidade original são transferidas para o fragmento mais longo.
  */
-export function trim(doc: SketchDocument, ref: EntityRef, param: number): EntityRef[] {
+export function trim(doc: SketchDocument, ref: EntityRef, param: number): TrimResult {
+  const empty = (deleted = false): TrimResult => ({ created: [], deleted });
   const info = entityInfo(doc, ref);
   const interval = trimInterval(doc, ref, param);
-  if (!interval) return [];
+  if (!interval) return empty();
   // Um único corte numa curva fechada não define trecho a remover.
-  if (info.closed && interval.to - interval.from >= TAU - EPS) return [];
+  if (info.closed && interval.to - interval.from >= TAU - EPS) return empty();
 
   // Fragmentos que sobram: [min, from] e [to, max]; círculo é fechado e vira um arco.
   let ranges: Array<[number, number]>;
@@ -320,7 +326,14 @@ export function trim(doc: SketchDocument, ref: EntityRef, param: number): Entity
     if (interval.from > info.min + EPS) ranges.push([info.min, interval.from]);
     if (interval.to < info.max - EPS) ranges.push([interval.to, info.max]);
   }
-  if (ranges.length === 0) return [];
+  if (ranges.length === 0) {
+    // Arco cujos limites são apenas os próprios extremos: o recorte remove o arco todo.
+    if (ref.kind === 'arc') {
+      doc.removeEntity('arc', ref.id);
+      return empty(true);
+    }
+    return empty();
+  }
 
   const related = [...doc.constraints.values()].filter((c) => refMatchesEntity(c, ref));
   const created: EntityRef[] = [];
@@ -340,7 +353,7 @@ export function trim(doc: SketchDocument, ref: EntityRef, param: number): Entity
       created.push({ kind: 'arc', id: doc.addArc(center, a, b, ccw).id });
     }
   }
-  if (created.length === 0) return [];
+  if (created.length === 0) return empty();
 
   // Remove a entidade original (e suas restrições) e recria as compatíveis no fragmento principal.
   if (ref.kind === 'line') doc.removeLine(ref.id);
@@ -352,5 +365,5 @@ export function trim(doc: SketchDocument, ref: EntityRef, param: number): Entity
     if (moved) doc.addConstraint(moved);
   }
 
-  return created;
+  return { created, deleted: false };
 }

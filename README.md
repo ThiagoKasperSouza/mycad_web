@@ -25,13 +25,13 @@ WASM atrás da mesma interface.
 - **Linha (L)** — clique início → clique fim; cadeia contínua (Esc encerra).
   - Infere **coincidência** (snap em ponto), **horizontal (H)** e **vertical (V)** automaticamente.
 - **Círculo (C)** — clique no centro → clique no raio. Centro e ponto da circunferência são pontos reais do sketch, então participam do snap e do solver.
-- **Arco (A)** — clique centro → início → fim. Pressione **R** para inverter o sentido (↺/↻). Também é formado por pontos + centro, com raio derivado.
+- **Arco (A)** — clique centro → início → fim. O sentido é alternado por **R** ou pelo botão **↺ CCW / ↻ CW** que aparece no canto do canvas quando a ferramenta está ativa (funciona no mobile). Com sentido horário é possível desenhar arcos de −90°, por exemplo. Também é formado por pontos + centro, com raio derivado.
 - **Perpendicular (E)** — duas retas (ou reta + curva: a reta passa pelo centro).
 - **Ângulo entre retas (G)** — duas retas; mede o ângulo dirigido entre elas, que pode ser o externo dependendo da ordem dos pontos.
 - **Ângulo interno (I)** — clique no **vértice** e depois em cada lateral (pode clicar no meio da linha; o extremo oposto é usado como referência). Mede sempre o ângulo interno (0–180°), ideal para cantos de polígonos e trapézios. O valor em graus é editável no canvas e o solver gira as laterais. Por medir o menor ângulo entre os raios, cobre ângulos internos de polígonos convexos (0–180°).
 - **Simetria (S)** — clique no 1º ponto, na reta-eixo e no 2º ponto; o solver espelha o par em relação ao eixo.
 - **Coincidente (O)** — clique em dois pontos para forçá-los à mesma posição (duas equações no solver). Útil para unir cantos que foram desenhados com pontos separados.
-- **Recortar (X)** — passe o cursor sobre uma entidade: o trecho entre interseções consecutivas é destacado em vermelho; clique para removê-lo. Funciona entre linhas, círculos e arcos. Restrições da entidade original são transferidas para o fragmento restante.
+- **Recortar (X)** — passe o cursor sobre uma entidade: o trecho entre interseções consecutivas é destacado em vermelho; clique para removê-lo. Funciona entre linhas, círculos e arcos; arcos limitados apenas pelos próprios extremos são removidos por inteiro. Restrições da entidade original são transferidas para o fragmento restante.
 - **Tangente (T)** — clique em duas entidades (linha, círculo ou arco) para criar tangência:
   - linha–curva: distância do centro da curva à reta = raio;
   - curva–curva: centros separados pela soma dos raios (externa) ou pela diferença (**Shift** = interna);
