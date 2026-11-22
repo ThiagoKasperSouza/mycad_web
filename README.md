@@ -30,6 +30,7 @@ WASM atrás da mesma interface.
 - **Ângulo entre retas (G)** — duas retas; mede o ângulo dirigido entre elas, que pode ser o externo dependendo da ordem dos pontos.
 - **Ângulo interno (I)** — clique no **vértice** e depois em cada lateral (pode clicar no meio da linha; o extremo oposto é usado como referência). Mede sempre o ângulo interno (0–180°), ideal para cantos de polígonos e trapézios. O valor em graus é editável no canvas e o solver gira as laterais. Por medir o menor ângulo entre os raios, cobre ângulos internos de polígonos convexos (0–180°).
 - **Simetria (S)** — clique no 1º ponto, na reta-eixo e no 2º ponto; o solver espelha o par em relação ao eixo.
+- **Polígono (Y)** — escolha de **3 a 8 lados** no seletor (triângulo, quadrado, pentágono, hexágono, heptágono ou octógono), clique no centro e depois no primeiro vértice. Cria um polígono regular com vértices compartilhados entre as laterais.
 - **Coincidente (O)** — clique em dois pontos para forçá-los à mesma posição (duas equações no solver). Útil para unir cantos que foram desenhados com pontos separados.
 - **Recortar (X)** — passe o cursor sobre uma entidade: o trecho entre interseções consecutivas é destacado em vermelho; clique para removê-lo. Funciona entre linhas, círculos e arcos; arcos limitados apenas pelos próprios extremos são removidos por inteiro. Restrições da entidade original são transferidas para o fragmento restante.
 - **Tangente (T)** — clique em duas entidades (linha, círculo ou arco) para criar tangência:

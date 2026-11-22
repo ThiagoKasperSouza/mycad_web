@@ -12,6 +12,7 @@ import { screenToWorld, snap, worldToScreen, type Vec2, type View } from './sket
 const GRID = 10;
 const SNAP_RADIUS = 9;
 const PICK_RADIUS = 8;
+const TAU = Math.PI * 2;
 
 const TOOL_LABEL: Record<Tool, string> = {
   select: 'Selecionar',
@@ -27,6 +28,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   symmetry: 'Simetria',
   trim: 'Recortar',
   coincident: 'Coincidente',
+  polygon: 'Polígono',
   pan: 'Pan',
 };
 
@@ -44,6 +46,7 @@ const TOOL_HINT: Record<Tool, string> = {
   symmetry: 'Clique no 1º ponto, na reta de simetria e no 2º ponto',
   trim: 'Passe sobre uma entidade e clique para remover o trecho destacado',
   coincident: 'Clique em dois pontos para forçá-los à mesma posição',
+  polygon: 'Escolha os lados, clique no centro e depois no primeiro vértice',
   pan: 'Arraste para mover a vista',
 };
 
@@ -57,6 +60,8 @@ class SketcherApp {
   private editorBox = document.getElementById('inline-editor') as HTMLDivElement;
   private dimInput = document.getElementById('dim-input') as HTMLInputElement;
   private arcDirectionBtn = document.getElementById('arc-direction-btn') as HTMLButtonElement;
+  private polygonSidesEl = document.getElementById('polygon-sides') as HTMLSelectElement;
+  private polygonSidesWrap = document.getElementById('polygon-sides-wrap') as HTMLLabelElement;
 
   private doc = new SketchDocument();
   private view: View = { offsetX: 0, offsetY: 0, scale: 1 };
@@ -81,6 +86,7 @@ class SketcherApp {
   private symPointA: number | undefined;
   private symAxis: EntityRef | null = null;
   private coincidentFirst: number | undefined;
+  private polygonCenter: { id: number; ref: Vec2 } | null = null;
   private dimFirstPoint: number | undefined;
   private dragging: { id: number } | null = null;
   private panning: { sx: number; sy: number; ox: number; oy: number } | null = null;
@@ -137,6 +143,7 @@ class SketcherApp {
     this.symPointA = undefined;
     this.symAxis = null;
     this.coincidentFirst = undefined;
+    this.polygonCenter = null;
     this.dimFirstPoint = undefined;
     this.dragging = null;
     this.cancelEditor();
@@ -458,6 +465,7 @@ class SketcherApp {
     this.symPointA = undefined;
     this.symAxis = null;
     this.coincidentFirst = undefined;
+    this.polygonCenter = null;
     this.dimFirstPoint = undefined;
     this.preview = null;
     this.hint = TOOL_HINT[tool];
@@ -467,6 +475,7 @@ class SketcherApp {
     this.canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
     if (tool === 'arc') this.arcCcw = true;
     this.arcDirectionBtn.hidden = tool !== 'arc';
+    this.polygonSidesWrap.hidden = tool !== 'polygon';
     this.updateArcDirectionUI();
     this.refresh();
   }
@@ -614,10 +623,46 @@ class SketcherApp {
       return;
     }
 
+    if (this.tool === 'polygon') {
+      if (!this.polygonCenter) {
+        this.beginCommand();
+        const id = this.pointAt(w);
+        const p = this.doc.point(id);
+        this.polygonCenter = { id, ref: { x: p.x, y: p.y } };
+        this.setSelection('point', id);
+        this.hint = 'Agora clique no primeiro vértice';
+        this.draw();
+        return;
+      }
+      const sides = Math.max(3, Math.min(8, Number.parseInt(this.polygonSidesEl.value, 10) || 3));
+      const center = this.polygonCenter.ref;
+      const firstId = this.pointAt(w, this.polygonCenter.id);
+      if (firstId === this.polygonCenter.id) return;
+      const v0 = this.doc.point(firstId);
+      const radius = Math.hypot(v0.x - center.x, v0.y - center.y);
+      if (radius < 1e-6) return;
+      const a0 = Math.atan2(v0.y - center.y, v0.x - center.x);
+      const vertices = [firstId];
+      for (let k = 1; k < sides; k++) {
+        const t = a0 + TAU * k / sides;
+        const p = this.doc.addPoint(center.x + Math.cos(t) * radius, center.y + Math.sin(t) * radius);
+        vertices.push(p.id);
+      }
+      for (let k = 0; k < sides; k++) {
+        this.doc.addLine(vertices[k], vertices[(k + 1) % sides]);
+      }
+      this.polygonCenter = null;
+      this.endCommand();
+      this.hint = TOOL_HINT.polygon;
+      this.solveAndRefresh();
+      return;
+    }
+
     if (this.tool === 'coincident') {
       const pid = hitTestPoint(this.doc, w.x, w.y, pick);
       if (pid === undefined) {
         this.coincidentFirst = undefined;
+        this.polygonCenter = null;
         this.hint = TOOL_HINT.coincident;
         this.draw();
         return;
@@ -633,6 +678,7 @@ class SketcherApp {
       if (pid === this.coincidentFirst) return;
       const c = this.doc.addConstraint({ type: 'coincident', a: this.coincidentFirst, b: pid });
       this.coincidentFirst = undefined;
+      this.polygonCenter = null;
       this.endCommand();
       this.hint = TOOL_HINT.coincident;
       this.solveAndRefresh();
@@ -801,7 +847,8 @@ class SketcherApp {
       const c = this.doc.addConstraint({ type: 'symmetry', a: this.symPointA, axis: this.symAxis, b: pid });
       this.symPointA = undefined;
       this.symAxis = null;
-    this.coincidentFirst = undefined;
+      this.coincidentFirst = undefined;
+      this.polygonCenter = null;
       this.endCommand();
       this.hint = TOOL_HINT.symmetry;
       this.solveAndRefresh();
@@ -1000,6 +1047,15 @@ class SketcherApp {
         this.preview = { kind: 'trim', x: w.x, y: w.y };
         this.hint = TOOL_HINT.trim;
       }
+    } else if (this.tool === 'polygon' && this.polygonCenter) {
+      const snapRes = snap(this.doc, w.x, w.y, this.view, {
+        grid: GRID, radiusPx: SNAP_RADIUS, skipPointId: this.polygonCenter.id,
+      });
+      const sides = Math.max(3, Math.min(8, Number.parseInt(this.polygonSidesEl.value, 10) || 3));
+      this.preview = {
+        kind: 'polygon', x: snapRes.x, y: snapRes.y,
+        start: this.polygonCenter.ref, sides,
+      };
     } else if (this.tool === 'point') {
       const snapRes = snap(this.doc, w.x, w.y, this.view, { grid: GRID, radiusPx: SNAP_RADIUS });
       this.preview = { kind: 'point', x: snapRes.x, y: snapRes.y, snap: snapRes };
@@ -1040,7 +1096,7 @@ class SketcherApp {
     if (this.lineStart || this.circleCenter || this.arcState || this.tangentFirst || this.perpFirst
         || this.angleFirst || this.anglePoints || this.symAxis
         || this.symPointA !== undefined || this.coincidentFirst !== undefined
-        || this.dimFirstPoint !== undefined) {
+        || this.polygonCenter || this.dimFirstPoint !== undefined) {
       this.lineStart = null;
       this.circleCenter = null;
       this.arcState = null;
@@ -1050,7 +1106,8 @@ class SketcherApp {
       this.anglePoints = null;
       this.symPointA = undefined;
       this.symAxis = null;
-    this.coincidentFirst = undefined;
+      this.coincidentFirst = undefined;
+      this.polygonCenter = null;
       this.dimFirstPoint = undefined;
       this.hint = TOOL_HINT[this.tool];
       this.preview = null;
@@ -1088,7 +1145,8 @@ class SketcherApp {
       this.anglePoints = null;
       this.symPointA = undefined;
       this.symAxis = null;
-    this.coincidentFirst = undefined;
+      this.coincidentFirst = undefined;
+      this.polygonCenter = null;
       this.dimFirstPoint = undefined;
       this.fitView();
       this.solveAndRefresh();
@@ -1149,6 +1207,7 @@ class SketcherApp {
       else if (k === 's') this.setTool('symmetry');
       else if (k === 'x') this.setTool('trim');
       else if (k === 'o') this.setTool('coincident');
+      else if (k === 'y') this.setTool('polygon');
       else if (k === 'f') { this.fitView(); this.draw(); }
       else if (k === 'r' && this.tool === 'arc') this.toggleArcDirection();
     });

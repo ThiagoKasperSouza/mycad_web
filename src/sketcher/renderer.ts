@@ -18,7 +18,7 @@ function constraintColor(c: Constraint, selection: Selection, base: string): str
 }
 
 export interface Preview {
-  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim';
+  kind: 'point' | 'line' | 'circle' | 'arc' | 'trim' | 'polygon';
   x: number;          // mundo: ponto atual do cursor (já com snap)
   y: number;
   start?: Vec2;       // mundo: início da operação (linha / centro)
@@ -26,6 +26,7 @@ export interface Preview {
   ccw?: boolean;      // sentido do arco em prévia
   snap?: SnapResult;
   trim?: { ref: EntityRef; interval?: Interval };
+  sides?: number;
 }
 
 export function formatNumber(v: number): string {
@@ -683,6 +684,33 @@ function drawPreview(ctx: CanvasRenderingContext2D, preview: Preview, view: View
     if (exists && preview.trim.interval) drawTrimPreview(ctx, doc, ref, preview.trim.interval, view);
     return;
   }
+  if (preview.kind === 'polygon' && preview.start && preview.sides) {
+    const center = preview.start;
+    const n = preview.sides;
+    const r = Math.hypot(preview.x - center.x, preview.y - center.y);
+    const a0 = Math.atan2(preview.y - center.y, preview.x - center.x);
+    ctx.save();
+    ctx.strokeStyle = '#4da3ff';
+    ctx.fillStyle = '#4da3ff';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const theta = a0 + TAU * (i % n) / n;
+      const s = worldToScreen(center.x + Math.cos(theta) * r, center.y + Math.sin(theta) * r, view);
+      if (i === 0) ctx.moveTo(s.x, s.y);
+      else ctx.lineTo(s.x, s.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const c = worldToScreen(center.x, center.y, view);
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 3, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
   const end = worldToScreen(preview.x, preview.y, view);
   ctx.save();
   ctx.setLineDash([5, 4]);
