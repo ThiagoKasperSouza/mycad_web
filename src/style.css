@@ -56,6 +56,15 @@ body.mode-3d .canvas-wrap { display: none; }
 body.mode-3d .inspector { display: none; }
 .row .eye { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 3px; }
 .row .eye:hover { color: var(--accent); }
+.sidebar-left .del { font-size: 11px; padding: 0 2px; }
+.tree-body { margin-bottom: 8px; }
+.tree-sketch {
+  margin: 3px 0 0 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--accent);
+  font-size: 11px;
+}
+.tree-sketch.empty { border-color: var(--danger); padding: 4px 8px; }
 
 /* Toolbar */
 .toolbar {

@@ -1274,10 +1274,28 @@ class SketcherApp {
     this.renderSidebar();
   }
 
+  private planeLabel(s: SketchInfo): string {
+    return s.plane.normal.z === 1 && s.plane.origin.lengthSq() === 0 ? 'Plano XY' : 'Face 3D';
+  }
+
   private extrudeActiveSketch(): void {
     const thickness = Number.parseFloat(document.getElementById('extrude-thickness') instanceof HTMLInputElement
       ? (document.getElementById('extrude-thickness') as HTMLInputElement).value : '10');
     const value = Number.isFinite(thickness) && thickness > 0 ? thickness : 10;
+
+    // Um corpo consome o esboço que o gerou: se ele já foi extrudado,
+    // criamos um esboço filho com uma cópia do perfil para manter a relação 1:1.
+    if (this.activeSketch.extruded) {
+      const id = this.nextSketchId++;
+      this.sketches.push({
+        id, name: `Esboço ${id}`,
+        doc: SketchDocument.fromSnapshot(this.doc.toSnapshot()),
+        plane: this.activeSketch.plane,
+        extruded: false,
+      });
+      this.activeSketchId = id;
+    }
+
     const mesh = extrudeSketch(this.doc, this.activeSketch.plane, value);
     if (!mesh) {
       this.hint = 'O esboço precisa de um contorno fechado para extrudar';
@@ -1297,6 +1315,57 @@ class SketcherApp {
     this.viewport.addBody(body);
     this.hint = `Corpo extrudado com espessura ${value}`;
     this.setMode('3d');
+  }
+
+  private clearFaceSelection(bodyId: number): void {
+    if (this.selectedFace?.bodyId === bodyId) {
+      this.selectedFace = undefined;
+      this.viewport.clearHighlight();
+    }
+  }
+
+  private deleteBody(id: number, withSketch: boolean): void {
+    const body = this.bodies.find((b) => b.id === id);
+    if (!body) return;
+    this.viewport.removeBody(id);
+    this.clearFaceSelection(id);
+    this.bodies = this.bodies.filter((b) => b.id !== id);
+
+    if (withSketch) {
+      this.deleteSketch(body.sketchId);
+      return;
+    }
+    const sketch = this.sketches.find((s) => s.id === body.sketchId);
+    if (sketch && !this.bodies.some((b) => b.sketchId === sketch.id)) sketch.extruded = false;
+    this.hint = `${body.name} excluído`;
+    this.renderSidebar();
+  }
+
+  private deleteSketch(id: number): void {
+    const owned = this.bodies.filter((b) => b.sketchId === id);
+    for (const body of owned) {
+      this.viewport.removeBody(body.id);
+      this.clearFaceSelection(body.id);
+    }
+    if (owned.length) this.bodies = this.bodies.filter((b) => b.sketchId !== id);
+    this.sketches = this.sketches.filter((s) => s.id !== id);
+
+    if (!this.sketches.length) {
+      const nid = this.nextSketchId++;
+      this.sketches.push({
+        id: nid, name: `Esboço ${nid}`, doc: new SketchDocument(),
+        plane: defaultPlane(), extruded: false,
+      });
+    }
+    if (!this.sketches.some((s) => s.id === this.activeSketchId)) {
+      this.activeSketchId = this.sketches[0].id;
+    }
+    this.hint = 'Esboço e corpo associado excluídos';
+    this.renderSidebar();
+    if (this.mode === '2d') {
+      this.fitView();
+      this.solveAndRefresh();
+    }
   }
 
   private createSketchOnFace(): void {
@@ -1327,20 +1396,31 @@ class SketcherApp {
     if (!bodyList || !sketchList) return;
 
     bodyList.innerHTML = this.bodies.length
-      ? [...this.bodies].reverse().map((b) => `
-        <div class="row" data-body="${b.id}">
-          <span class="label">${b.name} · ${b.thickness} mm</span>
-          <button class="eye" data-eye="${b.id}" title="${b.visible ? 'Ocultar' : 'Mostrar'}">${b.visible ? '◉' : '○'}</button>
-        </div>`).join('')
+      ? [...this.bodies].reverse().map((b) => {
+        const sketch = this.sketches.find((s) => s.id === b.sketchId);
+        return `
+        <div class="tree-body">
+          <div class="row" data-body="${b.id}">
+            <span class="label">${b.name} · ${b.thickness} mm</span>
+            <button class="eye" data-eye="${b.id}" title="${b.visible ? 'Ocultar' : 'Mostrar'}">${b.visible ? '◉' : '○'}</button>
+            <button class="del" data-del-body="${b.id}" title="Excluir somente o corpo">✕</button>
+            <button class="del" data-del-body-sketch="${b.id}" title="Excluir corpo e esboço">✕▱</button>
+          </div>
+          ${sketch ? `<div class="tree-sketch row${sketch.id === this.activeSketchId ? ' sel' : ''}" data-sketch="${sketch.id}">
+            <span class="label">↳ ${sketch.name} · ${this.planeLabel(sketch)}</span>
+            <button class="del" data-del-sketch="${sketch.id}" title="Excluir esboço e corpo associado">✕</button>
+          </div>` : '<div class="tree-sketch empty">⚠ sem esboço de origem</div>'}
+        </div>`;
+      }).join('')
       : '<div class="empty">Nenhum corpo</div>';
 
-    sketchList.innerHTML = this.sketches.map((s) => {
-      const kind = s.plane.normal.z === 1 && s.plane.origin.lengthSq() === 0 ? 'Plano XY' : 'Face 3D';
-      return `<div class="row${s.id === this.activeSketchId ? ' sel' : ''}" data-sketch="${s.id}">
-        <span class="label">${s.name} · ${kind}</span>
-        <span class="tag">${s.extruded ? 'extrudado' : 'aberto'}</span>
-      </div>`;
-    }).join('');
+    const loose = this.sketches.filter((s) => !this.bodies.some((b) => b.sketchId === s.id));
+    sketchList.innerHTML = loose.length
+      ? loose.map((s) => `<div class="row${s.id === this.activeSketchId ? ' sel' : ''}" data-sketch="${s.id}">
+          <span class="label">${s.name} · ${this.planeLabel(s)}</span>
+          <button class="del" data-del-sketch="${s.id}" title="Excluir esboço">✕</button>
+        </div>`).join('')
+      : '<div class="empty">Nenhum esboço avulso</div>';
   }
 
   private bindEvents(): void {
@@ -1351,8 +1431,10 @@ class SketcherApp {
     document.getElementById('extrude-btn')!.addEventListener('click', () => this.extrudeActiveSketch());
     document.getElementById('face-sketch-btn')!.addEventListener('click', () => this.createSketchOnFace());
 
-    document.getElementById('body-list')!.addEventListener('click', (e) => {
-      const eye = (e.target as HTMLElement).closest<HTMLElement>('[data-eye]');
+    document.getElementById('sidebar-left')!.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+
+      const eye = target.closest<HTMLElement>('[data-eye]');
       if (eye) {
         const id = Number(eye.dataset.eye);
         const body = this.bodies.find((b) => b.id === id);
@@ -1361,15 +1443,22 @@ class SketcherApp {
           this.viewport.setBodyVisible(id, body.visible);
           this.renderSidebar();
         }
+        return;
       }
-    });
-    document.getElementById('sketch-list')!.addEventListener('click', (e) => {
-      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-sketch]');
-      if (!row) return;
-      this.activeSketchId = Number(row.dataset.sketch);
-      this.setMode('2d');
-      this.fitView();
-      this.solveAndRefresh();
+      const both = target.closest<HTMLElement>('[data-del-body-sketch]');
+      if (both) { this.deleteBody(Number(both.dataset.delBodySketch), true); return; }
+      const delBody = target.closest<HTMLElement>('[data-del-body]');
+      if (delBody) { this.deleteBody(Number(delBody.dataset.delBody), false); return; }
+      const delSketch = target.closest<HTMLElement>('[data-del-sketch]');
+      if (delSketch) { this.deleteSketch(Number(delSketch.dataset.delSketch)); return; }
+
+      const row = target.closest<HTMLElement>('[data-sketch]');
+      if (row) {
+        this.activeSketchId = Number(row.dataset.sketch);
+        this.setMode('2d');
+        this.fitView();
+        this.solveAndRefresh();
+      }
     });
 
     document.querySelectorAll('.tool-buttons').forEach((group) => {

@@ -24,7 +24,11 @@ WASM atrás da mesma interface.
 O seletor **2D / 3D** no canto da toolbar alterna entre o sketcher e um viewport Three.js.
 
 - **Extrudar (⇧)** — o contorno fechado do esboço ativo é convertido em `THREE.Shape` e extrudado pela espessura informada no campo **Esp.**. O corpo resultante aparece no viewport 3D com órbita/zoom.
-- **Sidebar esquerdo** — lista corpos (com botão de visibilidade) e esboços (com o plano de origem: `Plano XY` ou `Face 3D`). Clicar num esboço volta ao modo 2D com ele ativo.
+- **Sidebar esquerdo** — árvore de corpos: cada corpo mostra seu **esboço filho** (com o plano de origem: `Plano XY` ou `Face 3D`). A relação é 1:1 — reextrudar um esboço já usado cria automaticamente um esboço filho com uma cópia do perfil. Clicar num esboço volta ao modo 2D com ele ativo.
+  - `◉/○` alterna visibilidade do corpo;
+  - `✕` exclui somente o corpo (o esboço continua disponível para reextrudar);
+  - `✕▱` exclui o corpo **e** seu esboço;
+  - `✕` no esboço filho exclui o esboço e, por consequência, o corpo dele dependentes. Se não restar nenhum esboço, um novo esboço vazio é criado.
 - **Esboço na face** — no 3D, clique numa face do corpo para selecioná-la e use **▱**. É criado um novo esboço no plano da face (origem no ponto clicado, normal da face), e o editor 2D volta com esse esboço ativo. Extrudá-lo gera um novo corpo.
 
 Limitações desta primeira versão: extrusão sempre aditiva (sem corte/subtração), corpos são malhas (sem B-rep paramétrico), e não há ainda edição da espessura depois de criada.
